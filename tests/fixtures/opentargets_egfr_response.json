@@ -1,0 +1,41 @@
+{
+  "data": {
+    "target": {
+      "id": "ENSG00000146648",
+      "approvedSymbol": "EGFR",
+      "tractability": [
+        { "label": "Approved Drug", "modality": "SM", "value": true },
+        { "label": "Advanced Clinical", "modality": "SM", "value": false },
+        { "label": "Approved Drug", "modality": "AB", "value": true },
+        { "label": "Advanced Clinical", "modality": "AB", "value": false }
+      ],
+      "safetyLiabilities": [
+        { "event": "alopecia" },
+        { "event": "ocular keratitis" },
+        { "event": "Hepatotoxicity" }
+      ],
+      "associatedDiseases": {
+        "count": 2,
+        "rows": [
+          {
+            "score": 0.8525670184292347,
+            "disease": { "id": "MONDO_0005233", "name": "non-small cell lung carcinoma" },
+            "datatypeScores": [
+              { "id": "genetic_association", "score": 0.7464039237342681 },
+              { "id": "clinical", "score": 0.9959475193895682 },
+              { "id": "literature", "score": 0.9996573626545492 }
+            ]
+          },
+          {
+            "score": 0.7744435748658476,
+            "disease": { "id": "MONDO_0005061", "name": "lung adenocarcinoma" },
+            "datatypeScores": [
+              { "id": "genetic_association", "score": 0.6 },
+              { "id": "literature", "score": 0.95 }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

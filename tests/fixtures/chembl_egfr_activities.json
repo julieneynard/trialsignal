@@ -1,0 +1,33 @@
+{
+  "page_meta": {
+    "limit": 2,
+    "next": "/chembl/api/data/activity.json?limit=2&offset=2&target_chembl_id=CHEMBL203&standard_type=IC50",
+    "offset": 0,
+    "previous": null,
+    "total_count": 26600
+  },
+  "activities": [
+    {
+      "activity_id": 32260,
+      "molecule_chembl_id": "CHEMBL68920",
+      "molecule_pref_name": null,
+      "target_chembl_id": "CHEMBL203",
+      "standard_type": "IC50",
+      "standard_value": "41.0",
+      "standard_units": "nM",
+      "pchembl_value": "7.39",
+      "standard_relation": "="
+    },
+    {
+      "activity_id": 32263,
+      "molecule_chembl_id": "CHEMBL68920",
+      "molecule_pref_name": "GEFITINIB",
+      "target_chembl_id": "CHEMBL203",
+      "standard_type": "IC50",
+      "standard_value": "300.0",
+      "standard_units": "nM",
+      "pchembl_value": "6.52",
+      "standard_relation": "="
+    }
+  ]
+}

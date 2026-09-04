@@ -58,13 +58,20 @@ status, not the finished-product aspiration.
 | Component | Status |
 |---|---|
 | ClinicalTrials.gov client (pagination, retry, typed parsing) | ✅ Implemented, tested |
+| Open Targets client (GraphQL, target-disease evidence + tractability + safety) | ✅ Implemented, tested |
+| ChEMBL client (bioactivity, pagination) | ✅ Implemented, tested |
 | Leakage-aware label construction (stop-reason classifier) | ✅ Implemented, tested |
-| Entity resolution (condition/gene normalization + scored EFO matching) | ✅ Implemented, tested |
-| Open Targets / ChEMBL clients | 🚧 In progress |
-| Feature engineering / join pipeline | 🚧 In progress |
+| Entity resolution (condition/gene normalization + scored disease matching) | ✅ Implemented, tested |
+| Feature engineering / join pipeline (entity resolution → merged feature table) | 🚧 In progress |
 | Model training (temporal split, LightGBM, SHAP) | ⬜ Planned |
 | FastAPI `/score` endpoint (live scoring) | ⬜ Planned — API scaffold + tests exist, returns 501 until the feature pipeline lands |
 | Streamlit demo | ⬜ Planned — UI exists, waiting on a live `/score` |
+
+All three source clients are verified against their live APIs, not just
+fixtures — see the module docstrings in `clinicaltrials.py`, `open_targets.py`,
+and `chembl.py` for the specific real-world surprises each API had (string-typed
+numeric fields, mixed EFO/MONDO disease IDs, GraphQL errors that shouldn't be
+retried) that a docs-only implementation would have missed.
 
 ## Quickstart
 
@@ -76,8 +83,10 @@ ruff check src tests
 mypy src
 pytest
 
-# pull ClinicalTrials.gov data for a condition
+# pull data from each source
 trialsignal fetch-trials "non-small cell lung cancer" --output data/raw/nsclc.jsonl
+trialsignal fetch-target ENSG00000146648 --output data/raw/egfr_diseases.jsonl   # EGFR
+trialsignal fetch-activities CHEMBL203 --output data/raw/egfr_activities.jsonl   # EGFR bioactivity
 
 # run the API (once a model has been trained)
 trialsignal serve

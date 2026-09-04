@@ -61,15 +61,30 @@ class TrialRecord(BaseModel):
 
 
 class TargetDiseaseAssociation(BaseModel):
-    """One Open Targets target<->disease evidence row."""
+    """One Open Targets target<->disease evidence row.
+
+    `disease_id` is deliberately untyped as "EFO" — verified against the
+    live API, Open Targets returns a mix of EFO and MONDO ontology IDs in
+    this field depending on the disease's primary cross-reference (e.g.
+    EGFR/NSCLC comes back as `MONDO_0005233`, not an EFO ID). Assuming EFO
+    everywhere would silently break the entity-resolution join for a
+    meaningful fraction of diseases.
+
+    `datatype_scores` mirrors Open Targets' own evidence breakdown
+    (`genetic_association`, `clinical`, `somatic_mutation`, `literature`,
+    etc. — verified via the live API, not assumed) rather than picking two
+    fields to hardcode; which datatypes matter is a feature-engineering
+    decision, not a data-modeling one.
+    """
 
     target_id: str  # Ensembl gene ID, e.g. ENSG00000146648
     target_symbol: str
-    disease_id: str  # EFO ID
+    disease_id: str  # EFO_* or MONDO_*, whichever Open Targets returns
     disease_name: str
     overall_score: float = Field(ge=0.0, le=1.0)
-    genetic_association_score: float | None = Field(default=None, ge=0.0, le=1.0)
-    known_drug_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    datatype_scores: dict[str, float] = Field(default_factory=dict)
+    tractable_small_molecule: bool | None = None
+    tractable_antibody: bool | None = None
     safety_liability_count: int | None = None
 
 

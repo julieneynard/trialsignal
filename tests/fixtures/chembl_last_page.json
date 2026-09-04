@@ -1,0 +1,32 @@
+{
+  "page_meta": {
+    "limit": 2,
+    "next": null,
+    "offset": 2,
+    "previous": "/chembl/api/data/activity.json?limit=2&offset=0",
+    "total_count": 4
+  },
+  "activities": [
+    {
+      "activity_id": 32264,
+      "molecule_chembl_id": "CHEMBL66879",
+      "molecule_pref_name": "ERLOTINIB",
+      "target_chembl_id": "CHEMBL203",
+      "standard_type": "IC50",
+      "standard_value": "2.0",
+      "standard_units": "nM",
+      "pchembl_value": "8.7",
+      "standard_relation": "="
+    },
+    {
+      "activity_id": 32265,
+      "molecule_chembl_id": "CHEMBL99999",
+      "target_chembl_id": "CHEMBL203",
+      "standard_type": "IC50",
+      "standard_value": null,
+      "standard_units": null,
+      "pchembl_value": null,
+      "standard_relation": null
+    }
+  ]
+}
