@@ -46,27 +46,65 @@ reasons carries no signal about the drug and must be excluded from training,
 not mislabeled as a failure. The stop-reason classifier and its test suite
 (`tests/unit/test_labels.py`) are the part of this repo worth reading first.
 
-## Modeling (planned — feature pipeline is the current milestone)
+## Modeling
 
-- **Baseline**: logistic regression on a small, interpretable feature set —
-  exists to make sure the gradient-boosted model is earning its complexity,
-  not just curve-fitting noise.
-- **Primary model**: LightGBM, tuned via nested cross-validation.
-- **Split**: **temporal**, not random. Trials starting before a cutoff date
-  train the model; trials starting after it are held out. A random split
-  leaks future information (e.g. a drug's later trials informing predictions
-  about its earlier ones) and would produce an inflated, meaningless
-  validation score — the single most common mistake in trial-outcome
-  modeling papers.
-- **Interpretability**: SHAP values on every prediction, surfaced through the
-  `/score` API and the demo UI — not just a static feature-importance plot in
-  a notebook.
-- **Calibration**: reliability diagram + Brier score. A 0.7 "risk score" that
-  isn't actually 70% empirically is worse than an honest, uncalibrated rank.
+- **Baseline**: logistic regression on the feature set below — exists to
+  check the gradient-boosted model is actually earning its complexity, not
+  just curve-fitting a small, noisy dataset. On v1's real data the two
+  models perform almost identically, which is itself informative (see
+  "What v1's numbers actually mean" below) — a real gap would suggest
+  LightGBM is finding non-linear structure logistic regression can't; no
+  gap suggests the dataset is too small/simple for that distinction to show.
+- **Primary model**: LightGBM
+  ([`train.py`](../src/trialsignal/models/train.py)), default
+  hyperparameters (`n_estimators=100, max_depth=3`). No hyperparameter
+  search — with tens of rows, tuning would fit noise, not signal; this is a
+  documented tradeoff, not an oversight.
+- **Split — two modes, and the choice matters:**
+  - `train_and_evaluate` / `--eval-mode temporal` (the methodologically
+    correct approach): trials starting before a cutoff date train the
+    model, trials starting after it are held out. A random split leaks
+    future information (a drug's later trials informing predictions about
+    its earlier ones) and produces an inflated, meaningless validation
+    score — the single most common mistake in trial-outcome modeling
+    papers. It requires enough data that both classes appear on both sides
+    of the cutoff; when they don't (see below), it raises
+    `InsufficientClassDiversityError` rather than silently doing something
+    else.
+  - `cross_validate_lightgbm` / `--eval-mode cv` (the documented small-data
+    fallback): stratified k-fold, out-of-fold predictions. This reintroduces
+    the leakage risk temporal splitting exists to prevent (folds are
+    random, not time-ordered) — used only because v1's real dataset cannot
+    support a valid temporal split at all (see below), not because it's
+    preferred.
+- **Interpretability**: SHAP values via `shap.TreeExplainer`, surfaced
+  through `top_shap_features` in the training report.
+- **Calibration**: Brier score computed on every run. Reliability-diagram
+  plotting is not yet built (v1's sample size is too small for the
+  per-bin counts to mean anything — see below).
 
-## Evaluation
+## What v1's real numbers actually mean (read before citing the AUC)
 
-Beyond ROC-AUC/PR-AUC on the held-out temporal split: calibration, and a
-comparison against a naive baseline (e.g. "phase alone" — later-phase trials
-succeed more often almost by construction, so the model must beat that, not
-just beat chance).
+The current curated dataset is 2 hypotheses (EGFR/osimertinib/NSCLC,
+ABL1/imatinib/CML), 60 labeled trials total, 57 success / **3** failure — see
+`docs/LIMITATIONS.md` for exactly how that number was arrived at. A real
+training run (`trialsignal train ... --eval-mode cv`, 3-fold stratified CV,
+forced by `InsufficientClassDiversityError` on the temporal split — every
+failure is dated 2021+) produced ROC-AUC ≈ 0.92 for both models.
+
+**That number is not evidence the model has learned a generalizable
+trial-risk signal, and should not be read as one.** All 3 failures are EGFR
+trials; all 42 ABL1 trials are successes. With only 2 hypotheses in the
+data, any feature that differs systematically between EGFR and ABL1 — and
+several genuinely do, for real biological reasons (ABL1 is an intracellular
+kinase, not antibody-tractable; EGFR is a cell-surface receptor, and is) —
+is statistically indistinguishable from "which of the two drugs is this,"
+a trivial predictor with zero generalization value. The run's own top SHAP
+feature, `ot_tractable_antibody`, is a clean illustration: it is 0 for every
+ABL1 row and 1 for every EGFR row, i.e. perfectly collinear with hypothesis
+identity in this dataset. A high AUC built substantially on that kind of
+feature says "the model can tell EGFR trials from ABL1 trials," not "the
+model predicts trial risk." Evaluation only becomes meaningful once the
+curated hypothesis list (`features/hypothesis.py`) is large enough that no
+single feature perfectly separates hypotheses — that's the real bar for
+v2, not a higher AUC on the current data.

@@ -63,19 +63,27 @@ status, not the finished-product aspiration.
 | Leakage-aware label construction (stop-reason classifier) | ✅ Implemented, tested |
 | Entity resolution (condition/gene normalization + scored disease matching) | ✅ Implemented, tested |
 | Feature engineering / join pipeline (`trialsignal build-features`) | ✅ Implemented, tested |
-| Model training (temporal split, LightGBM, SHAP) | ⬜ Planned — next milestone |
-| FastAPI `/score` endpoint (live scoring) | ⬜ Planned — API scaffold + tests exist, returns 501 until a model is trained |
+| Model training (temporal + CV split, LightGBM, SHAP) | ✅ Implemented, tested, trained on real data — **read the caveat below** |
+| FastAPI `/score` endpoint (live scoring) | ⬜ Planned — next milestone. API scaffold + tests exist, returns 501/503 until wired to the trained model |
 | Streamlit demo | ⬜ Planned — UI exists, waiting on a live `/score` |
 
 All three source clients are verified against their live APIs, not just
 fixtures — see the module docstrings in `clinicaltrials.py`, `open_targets.py`,
 and `chembl.py` for the specific real-world surprises each API had (string-typed
 numeric fields, mixed EFO/MONDO disease IDs, GraphQL errors that shouldn't be
-retried) that a docs-only implementation would have missed. The join pipeline
-was run end-to-end against real data (`EGFR / osimertinib / NSCLC`, 1,989
-pulled trials → 10 labeled feature rows) — see
-[`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) for what that number means and why
-it's small for a still-actively-trialed drug, not a bug.
+retried) that a docs-only implementation would have missed.
+
+**On the trained model — read this before looking at the AUC.** The full
+pipeline was run end-to-end on real data: two curated hypotheses
+(EGFR/osimertinib/NSCLC, ABL1/imatinib/CML), 5,773 pulled trials → 60
+labeled feature rows → a trained LightGBM model (ROC-AUC ≈ 0.92, 3-fold CV).
+That number is **not evidence of a working predictive model** — with only 2
+hypotheses and all 3 failures coming from one of them, the model can score
+well largely by learning "which drug is this," a confound documented in
+detail in [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) and
+[`docs/LIMITATIONS.md`](docs/LIMITATIONS.md). Finding and stating that
+limitation clearly, rather than reporting the AUC at face value, is the part
+of this milestone actually worth reading.
 
 ## Quickstart
 
@@ -99,7 +107,11 @@ trialsignal build-features "EGFR / osimertinib / NSCLC" \
   --target-diseases-path data/raw/egfr_diseases.jsonl \
   --activities-path data/raw/egfr_activities.jsonl
 
-# run the API (once a model has been trained)
+# train (temporal split is the correct default; falls back to --eval-mode cv
+# when there isn't enough data per class per time period — see METHODS.md)
+trialsignal train data/processed/egfr_nsclc_features.csv --eval-mode cv
+
+# run the API (endpoint is scaffolded but not yet wired to the trained model — next milestone)
 trialsignal serve
 
 # run the demo (in another terminal, API must be running)

@@ -141,16 +141,71 @@ def build_features(
 
 
 @app.command()
-def train() -> None:
-    """Train the trial-progression risk model. Pending: requires the
-    Open Targets / ChEMBL feature pipeline (see README roadmap)."""
-    typer.echo(
-        "Training pipeline is not wired up yet — the feature-building step "
-        "(entity resolution -> Open Targets / ChEMBL feature join) is the "
-        "current milestone. See README.md roadmap.",
-        err=True,
+def train(
+    feature_tables: Annotated[
+        list[Path], typer.Argument(help="One or more CSV outputs from build-features.")
+    ],
+    eval_mode: Annotated[
+        str, typer.Option(help="'temporal' (default, correct) or 'cv' (small-data fallback).")
+    ] = "temporal",
+    cutoff: Annotated[
+        str, typer.Option(help="Temporal train/test split date, YYYY-MM-DD (temporal mode only).")
+    ] = "2022-01-01",
+    output: Annotated[Path, typer.Option(help="Where to save the trained model.")] = Path(
+        "models/trialsignal_model.joblib"
+    ),
+    model_version: Annotated[
+        str, typer.Option(help="Version tag stored with the model.")
+    ] = "0.1.0",
+) -> None:
+    """Train baseline (logistic regression) and LightGBM models on one or
+    more feature tables and save the LightGBM pipeline for serving.
+
+    `--eval-mode temporal` (default) is the methodologically correct
+    approach (see METHODS.md) but requires enough data that both classes
+    appear on both sides of the cutoff — it raises
+    InsufficientClassDiversityError with a clear explanation when a small,
+    imbalanced dataset can't support that. `--eval-mode cv` is the
+    documented small-data fallback (see train.py's cross_validate_lightgbm
+    docstring for what it gives up to get there)."""
+    from trialsignal.models.train import (
+        InsufficientClassDiversityError,
+        cross_validate_lightgbm,
+        load_feature_table,
+        save_model_bundle,
+        train_and_evaluate,
     )
-    raise typer.Exit(code=1)
+
+    df = load_feature_table(feature_tables)
+
+    if eval_mode == "temporal":
+        try:
+            _, lightgbm_model, report = train_and_evaluate(df, cutoff=cutoff)
+        except InsufficientClassDiversityError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+    elif eval_mode == "cv":
+        lightgbm_model, report = cross_validate_lightgbm(df)
+    else:
+        typer.echo(f"Unknown --eval-mode {eval_mode!r}. Use 'temporal' or 'cv'.", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"n_total={report.n_total}  n_train={report.n_train}  n_test={report.n_test}")
+    results = [("baseline (logreg)", report.baseline_eval), ("lightgbm", report.lightgbm_eval)]
+    for label, result in results:
+        auc = f"{result.roc_auc:.3f}" if result.roc_auc is not None else "n/a"
+        pr = f"{result.pr_auc:.3f}" if result.pr_auc is not None else "n/a"
+        note = f"  [{result.note}]" if result.note else ""
+        typer.echo(
+            f"  {label}: roc_auc={auc} pr_auc={pr} brier={result.brier_score:.3f} "
+            f"(n_test={result.n_test}: {result.n_test_success} success / "
+            f"{result.n_test_failure} failure){note}"
+        )
+    shap_summary = ", ".join(f"{n}={v:.3f}" for n, v in report.top_shap_features)
+    typer.echo(f"Top SHAP features (lightgbm): {shap_summary}")
+
+    save_model_bundle(lightgbm_model, output, model_version)
+    typer.echo(f"Saved model to {output}")
 
 
 @app.command()
