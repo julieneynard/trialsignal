@@ -1,0 +1,15 @@
+.git
+.github
+.venv
+venv
+tests
+notebooks
+data
+models
+__pycache__
+*.pyc
+.mypy_cache
+.pytest_cache
+.ruff_cache
+htmlcov
+.coverage

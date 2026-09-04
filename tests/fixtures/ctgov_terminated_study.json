@@ -1,0 +1,28 @@
+{
+  "protocolSection": {
+    "identificationModule": {
+      "nctId": "NCT01234567",
+      "briefTitle": "A Phase 2 Study of Drug X in Advanced NSCLC"
+    },
+    "statusModule": {
+      "overallStatus": "TERMINATED",
+      "whyStopped": "Terminated due to lack of efficacy at planned interim analysis",
+      "startDateStruct": { "date": "2019-03" },
+      "primaryCompletionDateStruct": { "date": "2021-07-15" }
+    },
+    "designModule": {
+      "studyType": "INTERVENTIONAL",
+      "phases": ["PHASE2"],
+      "enrollmentInfo": { "count": 120 }
+    },
+    "conditionsModule": {
+      "conditions": ["Non-Small Cell Lung Cancer"]
+    },
+    "armsInterventionsModule": {
+      "interventions": [{ "name": "Drug X" }, { "name": "Placebo" }]
+    },
+    "sponsorCollaboratorsModule": {
+      "leadSponsor": { "name": "Example Pharma Inc.", "class": "INDUSTRY" }
+    }
+  }
+}
