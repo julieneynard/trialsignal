@@ -100,6 +100,41 @@ class ChemblActivity(BaseModel):
     pchembl_value: float | None = None  # -log10(activity in M), the comparable form
 
 
+class TrialFeatureRow(BaseModel):
+    """One training-ready row: a single trial, joined against the target
+    biology (Open Targets) and chemistry (ChEMBL) evidence for the
+    hypothesis it's testing, with its outcome label attached.
+
+    This is the output of the feature pipeline and the input to training —
+    everything upstream of this model deals in per-source records; nothing
+    downstream of it should need to know ClinicalTrials.gov/Open
+    Targets/ChEMBL exist as separate systems.
+    """
+
+    nct_id: str
+    # TrialOutcome value; success/failure rows only — excluded trials never reach this table.
+    label: str
+    gene_symbol: str
+    disease_name: str
+    drug_name: str
+    max_phase: TrialPhase | None
+    enrollment: int | None
+    start_date: date | None
+
+    # Open Targets features (target<->disease evidence for this hypothesis)
+    ot_overall_score: float
+    ot_genetic_association_score: float | None
+    ot_clinical_score: float | None
+    ot_tractable_small_molecule: bool | None
+    ot_tractable_antibody: bool | None
+    ot_safety_liability_count: int | None
+
+    # ChEMBL features (aggregated bioactivity for the matched drug against this target)
+    chembl_activity_count: int
+    chembl_best_pchembl: float | None  # max pchembl_value found — higher is more potent
+    chembl_matched_by_molecule_name: bool  # False => target-level fallback, see build_features.py
+
+
 class ResolvedEntity(BaseModel):
     """Output of entity resolution: one drug/target/disease anchored across
     all three ID systems. This is what features and labels are joined on —

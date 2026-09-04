@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import csv
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, TypeVar
 
 import typer
 from pydantic import BaseModel
@@ -12,8 +13,13 @@ from pydantic import BaseModel
 from trialsignal.data.chembl import ChemblClient
 from trialsignal.data.clinicaltrials import ClinicalTrialsClient
 from trialsignal.data.open_targets import OpenTargetsClient
+from trialsignal.data.schemas import ChemblActivity, TargetDiseaseAssociation, TrialRecord
+from trialsignal.features.build_features import build_feature_table
+from trialsignal.features.hypothesis import CURATED_HYPOTHESES
 
 app = typer.Typer(help="TrialSignal: clinical trial outcome risk modeling pipeline.")
+
+_ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 _CONDITION_HELP = "CT.gov condition query, e.g. 'non-small cell lung cancer'"
 _OUTPUT_HELP = "Where to write newline-delimited JSON."
@@ -28,6 +34,11 @@ def _write_jsonl(records: Iterable[BaseModel], output: Path) -> int:
             f.write(record.model_dump_json() + "\n")
             count += 1
     return count
+
+
+def _read_jsonl(path: Path, model: type[_ModelT]) -> list[_ModelT]:
+    with path.open(encoding="utf-8") as f:
+        return [model.model_validate_json(line) for line in f if line.strip()]
 
 
 @app.command()
@@ -74,6 +85,59 @@ def fetch_activities(
     count = _write_jsonl(records, output)
     client.close()
     typer.echo(f"Wrote {count} bioactivity records to {output}")
+
+
+@app.command()
+def list_hypotheses() -> None:
+    """List the curated target/drug/disease hypotheses build-features can use."""
+    for h in CURATED_HYPOTHESES:
+        typer.echo(f"{h.name}  (gene={h.gene_symbol}, condition query={h.ctgov_condition_query!r})")
+
+
+@app.command()
+def build_features(
+    hypothesis_name: Annotated[
+        str, typer.Argument(help="Exact `name` of a hypothesis from `list-hypotheses`.")
+    ],
+    trials_path: Annotated[Path, typer.Option(help="Output of fetch-trials.")],
+    target_diseases_path: Annotated[Path, typer.Option(help="Output of fetch-target.")],
+    activities_path: Annotated[Path, typer.Option(help="Output of fetch-activities.")],
+    output: Annotated[Path, typer.Option(help="Where to write the feature table (CSV).")] = Path(
+        "data/processed/features.csv"
+    ),
+) -> None:
+    """Join trials + target-disease evidence + bioactivity into a training-
+    ready feature table for one curated hypothesis. Reports coverage
+    (how many pulled trials actually made it into the table) rather than
+    hiding the drop — see build_features.py's module docstring for why
+    trials get dropped."""
+    hypothesis = next((h for h in CURATED_HYPOTHESES if h.name == hypothesis_name), None)
+    if hypothesis is None:
+        names = ", ".join(h.name for h in CURATED_HYPOTHESES)
+        typer.echo(f"Unknown hypothesis {hypothesis_name!r}. Available: {names}", err=True)
+        raise typer.Exit(code=1)
+
+    trials = _read_jsonl(trials_path, TrialRecord)
+    target_diseases = _read_jsonl(target_diseases_path, TargetDiseaseAssociation)
+    activities = _read_jsonl(activities_path, ChemblActivity)
+
+    rows = build_feature_table(hypothesis, trials, target_diseases, activities)
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("w", newline="", encoding="utf-8") as f:
+        if rows:
+            fieldnames = list(rows[0].model_dump().keys())
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow(row.model_dump())
+
+    n_success = sum(1 for r in rows if r.label == "success")
+    n_failure = len(rows) - n_success
+    typer.echo(
+        f"{len(rows)}/{len(trials)} pulled trials matched this hypothesis and produced a "
+        f"labeled row ({n_success} success, {n_failure} failure). Wrote {output}."
+    )
 
 
 @app.command()

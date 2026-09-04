@@ -62,16 +62,20 @@ status, not the finished-product aspiration.
 | ChEMBL client (bioactivity, pagination) | ✅ Implemented, tested |
 | Leakage-aware label construction (stop-reason classifier) | ✅ Implemented, tested |
 | Entity resolution (condition/gene normalization + scored disease matching) | ✅ Implemented, tested |
-| Feature engineering / join pipeline (entity resolution → merged feature table) | 🚧 In progress |
-| Model training (temporal split, LightGBM, SHAP) | ⬜ Planned |
-| FastAPI `/score` endpoint (live scoring) | ⬜ Planned — API scaffold + tests exist, returns 501 until the feature pipeline lands |
+| Feature engineering / join pipeline (`trialsignal build-features`) | ✅ Implemented, tested |
+| Model training (temporal split, LightGBM, SHAP) | ⬜ Planned — next milestone |
+| FastAPI `/score` endpoint (live scoring) | ⬜ Planned — API scaffold + tests exist, returns 501 until a model is trained |
 | Streamlit demo | ⬜ Planned — UI exists, waiting on a live `/score` |
 
 All three source clients are verified against their live APIs, not just
 fixtures — see the module docstrings in `clinicaltrials.py`, `open_targets.py`,
 and `chembl.py` for the specific real-world surprises each API had (string-typed
 numeric fields, mixed EFO/MONDO disease IDs, GraphQL errors that shouldn't be
-retried) that a docs-only implementation would have missed.
+retried) that a docs-only implementation would have missed. The join pipeline
+was run end-to-end against real data (`EGFR / osimertinib / NSCLC`, 1,989
+pulled trials → 10 labeled feature rows) — see
+[`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) for what that number means and why
+it's small for a still-actively-trialed drug, not a bug.
 
 ## Quickstart
 
@@ -87,6 +91,13 @@ pytest
 trialsignal fetch-trials "non-small cell lung cancer" --output data/raw/nsclc.jsonl
 trialsignal fetch-target ENSG00000146648 --output data/raw/egfr_diseases.jsonl   # EGFR
 trialsignal fetch-activities CHEMBL203 --output data/raw/egfr_activities.jsonl   # EGFR bioactivity
+
+# join everything into a training-ready feature table for a curated hypothesis
+trialsignal list-hypotheses
+trialsignal build-features "EGFR / osimertinib / NSCLC" \
+  --trials-path data/raw/nsclc.jsonl \
+  --target-diseases-path data/raw/egfr_diseases.jsonl \
+  --activities-path data/raw/egfr_activities.jsonl
 
 # run the API (once a model has been trained)
 trialsignal serve

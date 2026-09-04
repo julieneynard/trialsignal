@@ -6,12 +6,23 @@ from trialsignal.data.entity_resolution import (
 
 
 def test_normalize_expands_known_abbreviation() -> None:
-    assert normalize_condition_text("NSCLC") == "non small cell lung carcinoma"
+    assert normalize_condition_text("NSCLC") == "non small cell lung cancer"
 
 
 def test_normalize_strips_stage_qualifiers() -> None:
-    assert normalize_condition_text("Stage IV NSCLC") == "non small cell lung carcinoma"
-    assert normalize_condition_text("Metastatic Renal Cell Carcinoma") == "renal cell carcinoma"
+    assert normalize_condition_text("Stage IV NSCLC") == "non small cell lung cancer"
+    assert normalize_condition_text("Metastatic Renal Cell Carcinoma") == "renal cell cancer"
+
+
+def test_normalize_collapses_carcinoma_to_cancer() -> None:
+    """CT.gov condition text says "cancer" (colloquial); Open Targets/EFO
+    disease names say "carcinoma" (formal) — collapsing them is what makes
+    the two sources' disease names comparable at all. See the module-level
+    comment on _CARCINOMA_SYNONYM for the measured before/after scores."""
+    assert normalize_condition_text("Non-Small Cell Lung Cancer") == normalize_condition_text(
+        "non-small cell lung carcinoma"
+    )
+    assert normalize_condition_text("Hepatocellular Carcinoma") == "hepatocellular cancer"
 
 
 def test_normalize_strips_punctuation_and_case() -> None:
