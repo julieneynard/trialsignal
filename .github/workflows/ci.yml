@@ -15,7 +15,6 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-          python-version: "3.11"
 
       - name: Install project (locked, with dev deps)
         run: uv sync --locked --extra dev
