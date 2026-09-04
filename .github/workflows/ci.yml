@@ -15,21 +15,19 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          python-version: "3.11"
 
-      - name: Set up Python
-        run: uv python install 3.11
-
-      - name: Install project (with dev deps)
-        run: uv pip install --system -e ".[dev]"
+      - name: Install project (locked, with dev deps)
+        run: uv sync --locked --extra dev
 
       - name: Lint (ruff)
-        run: ruff check src tests
+        run: uv run ruff check src tests
 
       - name: Type-check (mypy)
-        run: mypy src
+        run: uv run mypy src
 
       - name: Test (pytest, with coverage)
-        run: pytest
+        run: uv run pytest
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
