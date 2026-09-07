@@ -65,14 +65,41 @@ _NON_ALNUM = re.compile(r"[^a-z0-9\s]")
 # sarcoma, lymphoma) that carry meaningfully different information.
 _CARCINOMA_SYNONYM = re.compile(r"\bcarcinoma\b", re.IGNORECASE)
 
+# Same pattern as carcinoma/cancer, found the same way — by testing a real
+# hypothesis (ABL1/imatinib/CML) end-to-end. CT.gov trials overwhelmingly say
+# "chronic myeloid leukemia"; Open Targets' disease name is "chronic
+# myelogenous leukemia" (its formal synonym). Measured: without this
+# substitution, "chronic myeloid leukemia" vs Open Targets' actual CML entry
+# scores 0.63 — the single biggest real trial-matching failure found while
+# building the /score endpoint, since it silently broke the second curated
+# hypothesis entirely (build_live_feature_vector returned None for every
+# CML query).
+_MYELOGENOUS_SYNONYM = re.compile(r"\bmyelogenous\b", re.IGNORECASE)
+
+# Open Targets' CML entry is specifically "chronic myelogenous leukemia,
+# BCR-ABL1 positive" — a genetic-subtype qualifier that essentially never
+# appears in a trial's free-text condition ("Chronic Myeloid Leukemia" is
+# the overwhelming norm). Stripping trailing "<GENE(-GENE)*> positive/negative"
+# clauses is the same category of simplification as _STAGE_QUALIFIER: dropping
+# information that describes a subpopulation/subtype rather than changing
+# which disease entity this is, deliberately narrow (gene-marker positivity
+# only) rather than a general qualifier stripper that could eat real content.
+_BIOMARKER_QUALIFIER = re.compile(
+    r",?\s*\b[a-z0-9]+(-[a-z0-9]+)*\s+(positive|negative)\b", re.IGNORECASE
+)
+
 
 def normalize_condition_text(raw: str) -> str:
     """Lowercase, strip punctuation, expand known abbreviations, and drop
-    stage/severity qualifiers that describe the trial population rather than
-    the disease entity itself (EFO disease names don't carry stage info)."""
+    stage/severity/biomarker qualifiers that describe the trial population
+    rather than the disease entity itself (EFO disease names don't carry
+    stage info, and rarely carry the same biomarker-positivity phrasing a
+    trial's free-text condition does)."""
     text = raw.strip().lower()
     text = _STAGE_QUALIFIER.sub("", text)
+    text = _BIOMARKER_QUALIFIER.sub("", text)
     text = _CARCINOMA_SYNONYM.sub("cancer", text)
+    text = _MYELOGENOUS_SYNONYM.sub("myeloid", text)
     text = _NON_ALNUM.sub(" ", text)
     text = " ".join(text.split())
     return CONDITION_ALIASES.get(text, text)

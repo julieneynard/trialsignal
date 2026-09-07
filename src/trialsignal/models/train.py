@@ -30,6 +30,8 @@ from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_s
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from trialsignal.data.schemas import TrialFeatureRow
+
 FEATURE_COLUMNS: list[str] = [
     "max_phase_ordinal",
     "enrollment",
@@ -90,6 +92,40 @@ def _coerce_types(df: pd.DataFrame) -> pd.DataFrame:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     df["start_date"] = pd.to_datetime(df["start_date"], errors="coerce")
     return df
+
+
+def feature_row_to_frame(row: TrialFeatureRow) -> pd.DataFrame:
+    """Build a one-row, model-ready DataFrame directly from a
+    TrialFeatureRow — the live-serving counterpart to `load_feature_table`.
+
+    Used for a `/score` request built by `build_live_feature_vector`, whose
+    fields are already native Python types (bool/float/None/enum), not CSV
+    strings — so this is a direct field mapping, not the string-parsing
+    `_coerce_types` does. Two separate functions on purpose: conflating
+    "parse a CSV column" with "map an in-memory object's field" would make
+    the CSV-specific coercions (e.g. the "True"/"False" string check) look
+    applicable to live objects, where they'd silently never match and turn
+    every boolean into a missing value.
+    """
+    phase_key = row.max_phase.value if row.max_phase is not None else None
+    data = {
+        "max_phase_ordinal": _PHASE_ORDINAL.get(phase_key, -1) if phase_key else -1,
+        "enrollment": row.enrollment,
+        "ot_overall_score": row.ot_overall_score,
+        "ot_genetic_association_score": row.ot_genetic_association_score,
+        "ot_clinical_score": row.ot_clinical_score,
+        "ot_tractable_small_molecule": _bool_to_float(row.ot_tractable_small_molecule),
+        "ot_tractable_antibody": _bool_to_float(row.ot_tractable_antibody),
+        "ot_safety_liability_count": row.ot_safety_liability_count,
+        "chembl_activity_count": row.chembl_activity_count,
+        "chembl_best_pchembl": row.chembl_best_pchembl,
+        "chembl_matched_by_molecule_name": _bool_to_float(row.chembl_matched_by_molecule_name),
+    }
+    return pd.DataFrame([data], columns=FEATURE_COLUMNS)
+
+
+def _bool_to_float(value: bool | None) -> float | None:
+    return None if value is None else float(value)
 
 
 def temporal_split(df: pd.DataFrame, cutoff: str) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -297,12 +333,14 @@ def cross_validate_lightgbm(
     return final_model, report
 
 
-def _top_shap_features(
-    pipeline: Pipeline, x_train: pd.DataFrame, top_n: int = 5
-) -> list[tuple[str, float]]:
+def _raw_shap_values(pipeline: Pipeline, x: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """Returns (imputed_unscaled_values, shap_values), both shape
+    (n_rows, n_features). Shared by the batch (_top_shap_features) and
+    single-instance (explain_instance) explainers so both compute SHAP the
+    same way — only how the output is aggregated differs."""
     import shap
 
-    imputed = pipeline.named_steps["impute"].transform(x_train)
+    imputed = pipeline.named_steps["impute"].transform(x)
     scaled = pipeline.named_steps["scale"].transform(imputed)
     explainer = shap.TreeExplainer(pipeline.named_steps["estimator"])
     shap_values = explainer.shap_values(scaled)
@@ -313,9 +351,33 @@ def _top_shap_features(
     # shap/lightgbm version combinations that do return a per-class list.
     if isinstance(shap_values, list):
         shap_values = shap_values[-1]  # positive-class SHAP values
+    return imputed, shap_values
+
+
+def _top_shap_features(
+    pipeline: Pipeline, x_train: pd.DataFrame, top_n: int = 5
+) -> list[tuple[str, float]]:
+    _, shap_values = _raw_shap_values(pipeline, x_train)
     mean_abs = np.abs(shap_values).mean(axis=0)
     ranked = sorted(zip(FEATURE_COLUMNS, mean_abs, strict=True), key=lambda kv: kv[1], reverse=True)
     return [(name, float(value)) for name, value in ranked[:top_n]]
+
+
+def explain_instance(
+    pipeline: Pipeline, x_row: pd.DataFrame, top_n: int = 5
+) -> list[tuple[str, float, float]]:
+    """SHAP explanation for a single scored instance — used by the /score
+    API. Returns (feature_name, imputed_raw_value, shap_contribution)
+    sorted by |shap_contribution| descending. `imputed_raw_value` is
+    reported in the feature's real units (post-imputation, pre-scaling) —
+    the standardized value StandardScaler actually feeds the tree model is
+    not what a caller reading a score explanation wants to see."""
+    if len(x_row) != 1:
+        raise ValueError(f"explain_instance expects exactly one row, got {len(x_row)}")
+    imputed, shap_values = _raw_shap_values(pipeline, x_row)
+    contributions = list(zip(FEATURE_COLUMNS, imputed[0], shap_values[0], strict=True))
+    contributions.sort(key=lambda row: abs(row[2]), reverse=True)
+    return [(name, float(value), float(shap)) for name, value, shap in contributions[:top_n]]
 
 
 def save_model_bundle(pipeline: Pipeline, output: Path, model_version: str) -> None:

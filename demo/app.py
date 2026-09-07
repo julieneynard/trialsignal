@@ -25,6 +25,10 @@ with st.sidebar:
     except httpx.HTTPError:
         st.error("Cannot reach API — is it running? (`trialsignal serve`)")
 
+st.caption(
+    "Live scoring is restricted to a small curated set of hand-verified hypotheses "
+    "(see `trialsignal list-hypotheses`) — this is not a general gene/disease lookup."
+)
 gene_symbol = st.text_input("Target gene symbol", value="EGFR")
 disease_name = st.text_input("Disease", value="non-small cell lung carcinoma")
 drug_name = st.text_input("Drug (optional)", value="")
@@ -35,7 +39,10 @@ if st.button("Score", type="primary"):
         payload["drug_name"] = drug_name
 
     try:
-        response = httpx.post(f"{API_URL}/score", json=payload, timeout=30.0)
+        # Generous timeout: a cache-miss request triggers live Open Targets +
+        # ChEMBL fetches server-side (see serving/api.py) before it can score.
+        with st.spinner("Scoring (first request per hypothesis fetches live reference data)..."):
+            response = httpx.post(f"{API_URL}/score", json=payload, timeout=60.0)
     except httpx.HTTPError as exc:
         st.error(f"Request failed: {exc}")
     else:
@@ -43,6 +50,8 @@ if st.button("Score", type="primary"):
             result = response.json()
             st.metric("Risk score", f"{result['risk_score']:.2f}")
             st.caption(f"Model version: {result['model_version']}")
+            for warning in result.get("warnings", []):
+                st.info(warning)
             st.subheader("Top contributing features (SHAP)")
             st.table(result["top_contributions"])
         else:

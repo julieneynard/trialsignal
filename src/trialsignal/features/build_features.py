@@ -26,11 +26,14 @@ dataset like this:
 
 from __future__ import annotations
 
-from trialsignal.data.entity_resolution import resolve_condition_to_efo
+from datetime import date
+
+from trialsignal.data.entity_resolution import DiseaseMatch, resolve_condition_to_efo
 from trialsignal.data.schemas import (
     ChemblActivity,
     TargetDiseaseAssociation,
     TrialFeatureRow,
+    TrialPhase,
     TrialRecord,
 )
 from trialsignal.features.hypothesis import Hypothesis
@@ -59,6 +62,60 @@ def _aggregate_chembl(
     pchembl_values = [a.pchembl_value for a in pool if a.pchembl_value is not None]
     best = max(pchembl_values) if pchembl_values else None
     return len(pool), best, bool(molecule_matched)
+
+
+def _best_disease_match(
+    condition_texts: list[str], disease_candidates: list[tuple[str, str]]
+) -> DiseaseMatch | None:
+    """Best confident match across a list of free-text condition strings —
+    shared by the batch join (a trial's `conditions` list) and live scoring
+    (a single-item list wrapping the request's `disease_name`), so both
+    paths resolve disease identity through exactly the same logic."""
+    best_match: DiseaseMatch | None = None
+    for text in condition_texts:
+        match = resolve_condition_to_efo(
+            text, disease_candidates, confidence_threshold=_DISEASE_MATCH_THRESHOLD
+        )
+        is_better = best_match is None or (match is not None and match.score > best_match.score)
+        if match is not None and match.confident and is_better:
+            best_match = match
+    return best_match
+
+
+def _build_row(
+    *,
+    nct_id: str,
+    label: str,
+    hypothesis: Hypothesis,
+    target_disease: TargetDiseaseAssociation,
+    drug_name: str,
+    max_phase: TrialPhase | None,
+    enrollment: int | None,
+    start_date: date | None,
+    activities: list[ChemblActivity],
+) -> TrialFeatureRow:
+    activity_count, best_pchembl, matched_by_name = _aggregate_chembl(
+        activities, hypothesis.drug_aliases
+    )
+    return TrialFeatureRow(
+        nct_id=nct_id,
+        label=label,
+        gene_symbol=hypothesis.gene_symbol,
+        disease_name=target_disease.disease_name,
+        drug_name=drug_name,
+        max_phase=max_phase,
+        enrollment=enrollment,
+        start_date=start_date,
+        ot_overall_score=target_disease.overall_score,
+        ot_genetic_association_score=target_disease.datatype_scores.get("genetic_association"),
+        ot_clinical_score=target_disease.datatype_scores.get("clinical"),
+        ot_tractable_small_molecule=target_disease.tractable_small_molecule,
+        ot_tractable_antibody=target_disease.tractable_antibody,
+        ot_safety_liability_count=target_disease.safety_liability_count,
+        chembl_activity_count=activity_count,
+        chembl_best_pchembl=best_pchembl,
+        chembl_matched_by_molecule_name=matched_by_name,
+    )
 
 
 def build_feature_table(
@@ -91,14 +148,7 @@ def build_feature_table(
         if label == TrialOutcome.EXCLUDED:
             continue
 
-        best_match = None
-        for condition in trial.conditions:
-            match = resolve_condition_to_efo(
-                condition, disease_candidates, confidence_threshold=_DISEASE_MATCH_THRESHOLD
-            )
-            is_better = best_match is None or (match is not None and match.score > best_match.score)
-            if match is not None and match.confident and is_better:
-                best_match = match
+        best_match = _best_disease_match(trial.conditions, disease_candidates)
         if best_match is None:
             continue
 
@@ -107,29 +157,62 @@ def build_feature_table(
             (i for i in trial.interventions if _matches_drug(i, hypothesis.drug_aliases)),
             hypothesis.drug_aliases[0],
         )
-        activity_count, best_pchembl, matched_by_name = _aggregate_chembl(
-            activities, hypothesis.drug_aliases
-        )
 
         rows.append(
-            TrialFeatureRow(
+            _build_row(
                 nct_id=trial.nct_id,
                 label=label.value,
-                gene_symbol=hypothesis.gene_symbol,
-                disease_name=target_disease.disease_name,
+                hypothesis=hypothesis,
+                target_disease=target_disease,
                 drug_name=matched_drug,
                 max_phase=trial.max_phase,
                 enrollment=trial.enrollment,
                 start_date=trial.start_date,
-                ot_overall_score=target_disease.overall_score,
-                ot_genetic_association_score=target_disease.datatype_scores.get("genetic_association"),
-                ot_clinical_score=target_disease.datatype_scores.get("clinical"),
-                ot_tractable_small_molecule=target_disease.tractable_small_molecule,
-                ot_tractable_antibody=target_disease.tractable_antibody,
-                ot_safety_liability_count=target_disease.safety_liability_count,
-                chembl_activity_count=activity_count,
-                chembl_best_pchembl=best_pchembl,
-                chembl_matched_by_molecule_name=matched_by_name,
+                activities=activities,
             )
         )
     return rows
+
+
+def build_live_feature_vector(
+    hypothesis: Hypothesis,
+    target_diseases: list[TargetDiseaseAssociation],
+    activities: list[ChemblActivity],
+    disease_name_query: str,
+    *,
+    max_phase: TrialPhase | None = None,
+    enrollment: int | None = None,
+) -> TrialFeatureRow | None:
+    """Build one feature row for a live scoring request — no real trial
+    behind it, so `nct_id`/`label`/`start_date` are placeholders and
+    `max_phase`/`enrollment` are whatever the caller supplied (typically
+    unknown, which the trained pipeline handles via median imputation, same
+    as a batch row with a missing value).
+
+    Reuses `_best_disease_match` and `_build_row`, the same functions
+    `build_feature_table` uses — a live score and a training row are
+    computed by identical logic, so an untested divergence between "how we
+    train" and "how we serve" can't creep in silently. Returns None when
+    `disease_name_query` doesn't confidently resolve against this
+    hypothesis's target-disease evidence, mirroring the batch pipeline's
+    drop-don't-guess behavior.
+    """
+    disease_candidates = [(td.disease_id, td.disease_name) for td in target_diseases]
+    target_disease_by_id = {td.disease_id: td for td in target_diseases}
+
+    best_match = _best_disease_match([disease_name_query], disease_candidates)
+    if best_match is None:
+        return None
+
+    target_disease = target_disease_by_id[best_match.efo_id]
+    return _build_row(
+        nct_id="(live scoring request)",
+        label=TrialOutcome.EXCLUDED.value,
+        hypothesis=hypothesis,
+        target_disease=target_disease,
+        drug_name=hypothesis.drug_aliases[0],
+        max_phase=max_phase,
+        enrollment=enrollment,
+        start_date=None,
+        activities=activities,
+    )

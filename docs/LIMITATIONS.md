@@ -17,7 +17,20 @@ Stated plainly, up front, rather than discovered by a reviewer.
    trials, and the keyword list reflects oncology-trial language specifically.
 
 3. **Entity resolution has a hard confidence cutoff, and the drug-matching
-   step is a bigger coverage bottleneck than it looks.** Measured on the
+   step is a bigger coverage bottleneck than it looks.** Also: this class of
+   naming mismatch (colloquial trial phrasing vs. formal Open Targets/EFO
+   phrasing) is not a one-off — after the carcinoma/cancer gap (found while
+   building the join pipeline), building the live `/score` endpoint
+   surfaced a second, independent instance: CT.gov trials say "chronic
+   myeloid leukemia," Open Targets' actual CML entry is "chronic
+   myelogenous leukemia, BCR-ABL1 positive," and without a targeted fix
+   (`_MYELOGENOUS_SYNONYM` + `_BIOMARKER_QUALIFIER` in
+   `entity_resolution.py`) this silently broke the *entire* ABL1/imatinib
+   hypothesis — `build_live_feature_vector` returned `None` for every real
+   CML query. The pattern (a small, curated, documented synonym table
+   rather than a general fuzzy-matching threshold change) generalizes; the
+   next hypothesis added to `CURATED_HYPOTHESES` should expect to need its
+   own naming check against the live API before trusting it works. Measured on the
    real dataset the current model was trained on: pulling all
    ClinicalTrials.gov trials for "non-small cell lung cancer" (3,977 trials)
    and "chronic myeloid leukemia" (1,796 trials) yielded only 18
@@ -76,3 +89,17 @@ Stated plainly, up front, rather than discovered by a reviewer.
    disease areas without re-validation — oncology trial dynamics (fast
    biomarker-driven attrition, adaptive designs) differ meaningfully from,
    say, chronic disease trials.
+
+8. **Live `/score` trades coverage for latency, and has no in-flight
+   request de-duplication.** Measured against the live APIs: fetching
+   EGFR's full Open Targets association list (10 pages, 6,459 rows) took
+   ~79s for a single cold request and once hit a transient ChEMBL 5xx that
+   exhausted the client's retry budget. `/score` caps pagination at 2 pages
+   per source instead (a cache-miss request now takes single-digit seconds
+   — see `serving/api.py`'s module docstring for the full reasoning and the
+   sorted-by-score argument for why this is safe for the two current
+   hypotheses). Two concurrent cache-miss requests for the *same*
+   never-yet-cached hypothesis will both independently hit the live APIs
+   rather than one waiting on the other's in-flight fetch — harmless
+   (redundant work, not incorrect results) at this project's traffic level,
+   but a real gap a production version would need a per-key lock for.

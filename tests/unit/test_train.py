@@ -17,6 +17,7 @@ from trialsignal.models.train import (
     InsufficientClassDiversityError,
     cross_validate_lightgbm,
     evaluate,
+    explain_instance,
     load_feature_table,
     temporal_split,
     train_and_evaluate,
@@ -259,6 +260,30 @@ def test_cross_validate_lightgbm_raises_when_minority_class_too_small(tmp_path: 
 
     with pytest.raises(InsufficientClassDiversityError, match="at least 2"):
         cross_validate_lightgbm(df)
+
+
+def test_explain_instance_returns_ranked_feature_contributions(tmp_path: Path) -> None:
+    path = _synthetic_table(tmp_path, n_per_class=10)
+    df = load_feature_table([path])
+    _, lightgbm_model, _ = train_and_evaluate(df, cutoff="2015-01-01")
+
+    x_row = df[FEATURE_COLUMNS].iloc[[0]]
+    contributions = explain_instance(lightgbm_model, x_row, top_n=3)
+
+    assert len(contributions) == 3
+    assert all(name in FEATURE_COLUMNS for name, _, _ in contributions)
+    # Sorted by |shap contribution| descending.
+    magnitudes = [abs(shap) for _, _, shap in contributions]
+    assert magnitudes == sorted(magnitudes, reverse=True)
+
+
+def test_explain_instance_rejects_multi_row_input(tmp_path: Path) -> None:
+    path = _synthetic_table(tmp_path, n_per_class=10)
+    df = load_feature_table([path])
+    _, lightgbm_model, _ = train_and_evaluate(df, cutoff="2015-01-01")
+
+    with pytest.raises(ValueError, match="exactly one row"):
+        explain_instance(lightgbm_model, df[FEATURE_COLUMNS])
 
 
 def _dummy_pipeline():

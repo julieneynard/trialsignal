@@ -25,6 +25,25 @@ def test_normalize_collapses_carcinoma_to_cancer() -> None:
     assert normalize_condition_text("Hepatocellular Carcinoma") == "hepatocellular cancer"
 
 
+def test_normalize_collapses_myelogenous_to_myeloid() -> None:
+    """CT.gov trials say "chronic myeloid leukemia"; Open Targets' actual
+    disease entry is "chronic myelogenous leukemia, BCR-ABL1 positive" — a
+    real gap found by running the ABL1/imatinib/CML hypothesis end-to-end
+    through the live /score endpoint (see _MYELOGENOUS_SYNONYM's module
+    comment)."""
+    assert normalize_condition_text("Chronic Myeloid Leukemia") == normalize_condition_text(
+        "Chronic Myelogenous Leukemia"
+    )
+
+
+def test_normalize_strips_biomarker_positivity_qualifier() -> None:
+    assert (
+        normalize_condition_text("Chronic Myelogenous Leukemia, BCR-ABL1 Positive")
+        == "chronic myeloid leukemia"
+    )
+    assert normalize_condition_text("Breast Cancer, HER2 Negative") == "breast cancer"
+
+
 def test_normalize_strips_punctuation_and_case() -> None:
     raw = "  Multiple Myeloma, Relapsed/Refractory  "
     assert normalize_condition_text(raw) == "multiple myeloma"

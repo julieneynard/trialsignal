@@ -50,10 +50,13 @@ flowchart LR
     API --> DEMO[Streamlit demo]
 ```
 
-## What's actually implemented vs. planned
+## What's actually implemented
 
 This is a portfolio project built in the open — the README reflects real
-status, not the finished-product aspiration.
+status, not the finished-product aspiration. v1's full pipeline (fetch →
+entity-resolve → label → join → train → serve) is implemented, tested, and
+verified against live data end-to-end; see "Roadmap" below for what's
+genuinely next, not yet built.
 
 | Component | Status |
 |---|---|
@@ -64,14 +67,25 @@ status, not the finished-product aspiration.
 | Entity resolution (condition/gene normalization + scored disease matching) | ✅ Implemented, tested |
 | Feature engineering / join pipeline (`trialsignal build-features`) | ✅ Implemented, tested |
 | Model training (temporal + CV split, LightGBM, SHAP) | ✅ Implemented, tested, trained on real data — **read the caveat below** |
-| FastAPI `/score` endpoint (live scoring) | ⬜ Planned — next milestone. API scaffold + tests exist, returns 501/503 until wired to the trained model |
-| Streamlit demo | ⬜ Planned — UI exists, waiting on a live `/score` |
+| FastAPI `/score` endpoint (live scoring) | ✅ Implemented, tested, verified against live Open Targets + ChEMBL for both curated hypotheses |
+| Streamlit demo | ✅ Implemented — thin client over `/score`, renders risk score + SHAP + warnings |
 
 All three source clients are verified against their live APIs, not just
 fixtures — see the module docstrings in `clinicaltrials.py`, `open_targets.py`,
 and `chembl.py` for the specific real-world surprises each API had (string-typed
 numeric fields, mixed EFO/MONDO disease IDs, GraphQL errors that shouldn't be
 retried) that a docs-only implementation would have missed.
+
+**`/score` is verified against the live APIs, not just mocks.** Hand-testing
+it end-to-end found and fixed two real issues before calling it done: (1) a
+second instance of the CT.gov-vs-Open-Targets naming-mismatch pattern
+("chronic myeloid leukemia" vs. Open Targets' "chronic myelogenous
+leukemia, BCR-ABL1 positive") that silently broke the entire ABL1 hypothesis
+until fixed in `entity_resolution.py`, and (2) a real latency/error-handling
+gap — an unthrottled disease lookup took ~79s and once hit an unhandled 500
+on a transient upstream 5xx, fixed by capping pagination depth and adding a
+clean 502 for genuine upstream failures (see `serving/api.py`'s module
+docstring and `docs/LIMITATIONS.md` item 8).
 
 **On the trained model — read this before looking at the AUC.** The full
 pipeline was run end-to-end on real data: two curated hypotheses
@@ -111,10 +125,16 @@ trialsignal build-features "EGFR / osimertinib / NSCLC" \
 # when there isn't enough data per class per time period — see METHODS.md)
 trialsignal train data/processed/egfr_nsclc_features.csv --eval-mode cv
 
-# run the API (endpoint is scaffolded but not yet wired to the trained model — next milestone)
+# run the API
 trialsignal serve
 
-# run the demo (in another terminal, API must be running)
+# score a curated hypothesis (in another terminal; first request per
+# hypothesis fetches live Open Targets/ChEMBL data, a few seconds)
+curl -X POST http://localhost:8000/score \
+  -H "Content-Type: application/json" \
+  -d '{"gene_symbol": "EGFR", "disease_name": "non-small cell lung carcinoma"}'
+
+# or run the demo
 streamlit run demo/app.py
 ```
 
@@ -138,6 +158,29 @@ demo/          # Streamlit frontend
 tests/unit/    # fixture-based tests, no live network calls
 docs/          # METHODS.md, MODEL_CARD.md, LIMITATIONS.md
 ```
+
+## Roadmap
+
+What would actually make this project's evaluation numbers meaningful,
+roughly in priority order (all cross-referenced from `docs/LIMITATIONS.md`):
+
+1. **Expand `CURATED_HYPOTHESES` beyond 2.** The real fix for the current
+   model's hypothesis-identity confound (see MODEL_CARD.md) — not a
+   modeling change, a data-coverage one.
+2. **Molecule-name-first ChEMBL queries** (search the compound, then pull
+   its activities directly) instead of filtering a large target-level
+   activity page — would make `chembl_matched_by_molecule_name=True` the
+   normal case instead of the exception it is today.
+3. **Parse CT.gov's trial *results* section** (effect sizes / p-values)
+   to make "success" mean "met its primary endpoint," not "wasn't
+   terminated for cause" — the single biggest label-quality gap (see
+   LIMITATIONS.md item 1).
+4. **Per-hypothesis fetch locking** in the API, so two concurrent
+   cache-miss requests for the same hypothesis don't both hit the live
+   APIs independently (LIMITATIONS.md item 8).
+5. Extend past oncology once the pipeline's assumptions (stop-reason
+   vocabulary, disease-naming patterns) are re-validated for another
+   therapeutic area.
 
 ## Docs
 

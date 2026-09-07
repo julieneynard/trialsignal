@@ -7,7 +7,7 @@ from trialsignal.data.schemas import (
     TrialRecord,
     TrialStatus,
 )
-from trialsignal.features.build_features import build_feature_table
+from trialsignal.features.build_features import build_feature_table, build_live_feature_vector
 from trialsignal.features.hypothesis import Hypothesis
 
 HYPOTHESIS = Hypothesis(
@@ -165,3 +165,90 @@ def test_multiple_matching_trials_all_produce_rows() -> None:
     trials = [_trial("NCT009"), _trial("NCT010", interventions=["Tagrisso"])]
     rows = build_feature_table(HYPOTHESIS, trials, [TARGET_DISEASE], [])
     assert {r.nct_id for r in rows} == {"NCT009", "NCT010"}
+
+
+def test_live_feature_vector_matches_confident_disease() -> None:
+    row = build_live_feature_vector(
+        HYPOTHESIS, [TARGET_DISEASE], [], disease_name_query="Non-Small Cell Lung Cancer"
+    )
+
+    assert row is not None
+    assert row.gene_symbol == "EGFR"
+    assert row.disease_name == "non-small cell lung carcinoma"
+    assert row.ot_overall_score == 0.85
+    assert row.max_phase is None
+    assert row.enrollment is None
+
+
+def test_live_feature_vector_returns_none_for_unresolvable_disease() -> None:
+    row = build_live_feature_vector(
+        HYPOTHESIS, [TARGET_DISEASE], [], disease_name_query="totally unrelated condition"
+    )
+    assert row is None
+
+
+def test_live_feature_vector_passes_through_supplied_phase_and_enrollment() -> None:
+    row = build_live_feature_vector(
+        HYPOTHESIS,
+        [TARGET_DISEASE],
+        [],
+        disease_name_query="NSCLC",
+        max_phase=TrialPhase.PHASE3,
+        enrollment=250,
+    )
+
+    assert row is not None
+    assert row.max_phase == TrialPhase.PHASE3
+    assert row.enrollment == 250
+
+
+def test_live_feature_vector_uses_same_chembl_aggregation_as_batch() -> None:
+    activities = [
+        ChemblActivity(
+            molecule_chembl_id="CHEMBL1",
+            pref_name="OSIMERTINIB",
+            target_chembl_id="CHEMBL203",
+            standard_type="IC50",
+            pchembl_value=8.5,
+        ),
+    ]
+    row = build_live_feature_vector(
+        HYPOTHESIS, [TARGET_DISEASE], activities, disease_name_query="nsclc"
+    )
+
+    assert row is not None
+    assert row.chembl_matched_by_molecule_name is True
+    assert row.chembl_best_pchembl == 8.5
+
+
+def test_live_feature_vector_resolves_abl1_cml_against_real_open_targets_wording() -> None:
+    """Regression test for a real bug found running this hypothesis through
+    the live /score endpoint: Open Targets' actual CML entry is worded
+    "chronic myelogenous leukemia, BCR-ABL1 positive", not "chronic myeloid
+    leukemia" — without the entity_resolution fix, this returned None for
+    every real CML query, silently breaking the whole hypothesis."""
+    abl1_hypothesis = Hypothesis(
+        name="ABL1 / imatinib / CML",
+        gene_symbol="ABL1",
+        ensembl_target_id="ENSG00000097007",
+        chembl_target_id="CHEMBL1862",
+        drug_aliases=["imatinib", "gleevec", "glivec", "sti571"],
+        ctgov_condition_query="chronic myeloid leukemia",
+    )
+    cml_disease = TargetDiseaseAssociation(
+        target_id="ENSG00000097007",
+        target_symbol="ABL1",
+        disease_id="EFO_0000339",
+        disease_name="chronic myelogenous leukemia, BCR-ABL1 positive",
+        overall_score=0.8256952504441574,
+    )
+
+    row = build_live_feature_vector(
+        abl1_hypothesis,
+        [cml_disease],
+        [],
+        disease_name_query="chronic myeloid leukemia",
+    )
+
+    assert row is not None
+    assert row.disease_name == "chronic myelogenous leukemia, BCR-ABL1 positive"
