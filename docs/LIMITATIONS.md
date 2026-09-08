@@ -24,6 +24,44 @@ Stated plainly, up front, rather than discovered by a reviewer.
    probability the trial wasn't abandoned for cause otherwise" — the two
    are not the same claim, and the CSV output distinguishes them per row.
 
+1a. **Investigated and rejected: broadening results-based coverage from
+   ~14% to the ~50% of trials with `hasResults=True`.** The natural next
+   idea after limitation 1's fix — use trials with posted results but no
+   parseable primary-endpoint p-value, inferring success/failure from raw
+   arm-level measurements instead. Checked against 133 real examples (every
+   `hasResults=True`/no-p-value trial across 4 hypotheses' feature tables)
+   before writing any extraction code, the same way every other join/label
+   decision in this pipeline was checked against real data first. Result:
+   this is not a coverage-vs-noise tradeoff, it's mostly not a comparative
+   signal at all —
+     - **39/133 (29%)** have a safety/toxicity primary endpoint (adverse
+       event counts, dose-limiting toxicities) — doesn't speak to efficacy
+       regardless of parsing quality.
+     - **54/133 (41%)** are single-arm (dose-escalation cohorts, Phase
+       1/1b safety-lead-ins) — no comparator to measure "better than" at
+       all; judging success would require an external, disease- and
+       line-of-therapy-specific historical benchmark this project has no
+       verified source for.
+     - **38/133 (29%)** have 2+ arms but no interpretable control/placebo
+       label (e.g. dose cohorts, or arms named "Arm 1"/"Arm 2") — inferring
+       which arm is the comparator would be guessing, not extracting.
+     - **2/133 (1.5%)** have an explicit placebo/control-labeled arm — too
+       few to be worth building a directional-inference pipeline for, and
+       even these still require a per-outcome-type "which direction is
+       better" table to interpret without a significance test.
+
+   **Decision: not pursued.** Building a heuristic on this data would mean
+   guessing on ~99% of the addressable rows (single-arm trials and
+   unlabeled multi-arm cohorts), which is exactly the failure mode this
+   project has repeatedly found and fixed elsewhere (see limitation 1
+   itself, and the carcinoma/cancer and CML naming fixes in item 3) — a
+   real coverage number bought with a fabricated label is a worse trade
+   than the current ~14%. If this is revisited, it needs either genuine
+   oncology domain input (historical ORR/response-rate benchmarks per
+   disease and treatment line) or a narrower, still-conservative rule
+   (e.g. only 2-arm trials with an explicit placebo/SoC label, accepting
+   the ~1.5% coverage that leaves) — not a general arm-comparison heuristic.
+
 2. **Stop-reason classification is keyword-based, not a trained classifier.**
    `classify_stop_reason` (see `labels.py`) uses regex pattern matching over
    `why_stopped` free text. It's precision-oriented by design — ambiguous

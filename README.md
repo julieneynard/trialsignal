@@ -193,11 +193,15 @@ What would actually move the evaluation numbers, roughly in priority order
    substitutes the real primary-endpoint result for the registry-status
    proxy wherever available (~14% of trials) and rescues trials the proxy
    alone excluded. Combined with item 1: temporal ROC-AUC ≈0.5 → **≈0.68**.
-   What's left: coverage is still ~14% — finding a second, more broadly
-   covered results-derived signal (e.g. `hasResults` plus arm-level effect
-   direction without requiring a formal p-value, ~50% coverage vs ~14%)
-   is now the most likely lever on the next accuracy gain
-   (`docs/LIMITATIONS.md` item 4a).
+   ~~Broadening coverage to the ~50% of trials with `hasResults=True`~~
+   **investigated and rejected** — checked against 133 real examples first
+   (same discipline as every other design decision here) and found ~70% of
+   that gap is safety-only endpoints or single-arm trials with no
+   comparator to judge success against at all, not a labeling problem a
+   heuristic can responsibly close (`docs/LIMITATIONS.md` item 1a). Real
+   next lever on accuracy: more curated hypotheses (item 1's approach,
+   which is validated to work) rather than forcing more out of this data
+   source.
 3. **Molecule-name-first ChEMBL queries** (search the compound, then pull
    its activities directly) instead of filtering a large target-level
    activity page — would make `chembl_matched_by_molecule_name=True` the
