@@ -36,6 +36,26 @@ def test_normalize_collapses_myelogenous_to_myeloid() -> None:
     )
 
 
+def test_normalize_collapses_plasma_cell_myeloma_to_multiple_myeloma() -> None:
+    """CT.gov trials say "Multiple Myeloma"; Open Targets' actual disease
+    entry is "plasma cell myeloma" (formal synonym) — a third instance of
+    the same naming-mismatch class, found by checking the CD38/daratumumab
+    hypothesis against the live API before hardcoding it (see
+    _PLASMA_CELL_MYELOMA_SYNONYM's module comment)."""
+    assert normalize_condition_text("Multiple Myeloma") == normalize_condition_text(
+        "Plasma Cell Myeloma"
+    )
+
+
+def test_normalize_does_not_collapse_smoldering_myeloma() -> None:
+    """Smoldering myeloma is a distinct precursor condition, not the same
+    disease as active multiple myeloma — the synonym rule must not
+    conflate them just because both contain "myeloma"."""
+    assert normalize_condition_text("Smoldering Plasma Cell Myeloma") != normalize_condition_text(
+        "Multiple Myeloma"
+    )
+
+
 def test_normalize_strips_biomarker_positivity_qualifier() -> None:
     assert (
         normalize_condition_text("Chronic Myelogenous Leukemia, BCR-ABL1 Positive")

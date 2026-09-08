@@ -123,7 +123,8 @@ real biological reasons (e.g. `ot_tractable_antibody`, 0 for every ABL1 row
 and 1 for every EGFR row) was statistically indistinguishable from "which
 drug is this," a trivial, non-generalizing predictor.
 
-**v2 (7 hypotheses, current).** `CURATED_HYPOTHESES` was expanded to 7,
+**v2 (7 hypotheses, superseded — see v4 below for the current state).**
+`CURATED_HYPOTHESES` was expanded to 7,
 chosen for mechanistic diversity specifically to eliminate that shortcut
 (see [`hypothesis.py`](../src/trialsignal/features/hypothesis.py)'s module
 docstring) — 405 labeled trials, 378 success / 27 failure, with failures
@@ -149,7 +150,7 @@ now spread across 5 of 7 hypotheses. Two things changed as a direct result:
    why temporal splitting is the correct methodology and CV is a fallback,
    not a matter of preference.
 
-**v3 (same 7 hypotheses, results-validated labels, current).**
+**v3 (same 7 hypotheses, results-validated labels, superseded — see v4).**
 `labels.resolve_trial_label` now prefers each trial's own primary-endpoint
 p-value over the registry-status proxy wherever one is posted and
 parseable (~14% of trials) — both correcting proxy-mislabeled rows and
@@ -167,10 +168,31 @@ AUC) has also shrunk to ~0.03-0.04 here — two independently-computed
 numbers converging is evidence this result is real, not an artifact of
 either evaluation choice.
 
+**v4 (12 hypotheses, same label fix, more data).** `CURATED_HYPOTHESES`
+grew from 7 to 12 — 3 new disease areas (prostate, CLL, multiple myeloma)
+and 2 same-disease/different-mechanism additions (MTOR alongside KDR for
+renal cell carcinoma, CDK4 alongside ERBB2 for breast cancer) — chosen for
+disease diversity this time, not just mechanism diversity. Dataset grew to
+**686 rows, 73 failures**. Retraining: temporal ROC-AUC **0.678 → 0.632** —
+*down*, not up. Checked against CV before treating that as a problem: v3's
+CV-temporal gap was 0.031 (464 rows, 48-row test); v4's is 0.028 (686 rows,
+77-row test) — equally tight, slightly tighter. The straightforward
+explanation: v3's headline number came from a 48-row temporal test set and
+carried real sampling noise that happened to land favorably; v4's larger
+77-row test set is a more reliable estimate of the same underlying
+quantity, not evidence the new hypotheses hurt anything. This is why every
+evaluation in this project reports the CV-vs-temporal comparison rather
+than a single number — a single AUC from a 48-row test set was never
+precise enough to treat as final, and v4 is the demonstration of exactly
+that principle, not just another data point.
+
 **The chain matters as much as the destination.** v1's 0.92 was wrong for
 one reason (hypothesis confound); v2's fix revealed a second, unrelated
-problem (label noise) that had been masked by the first; only fixing both,
-in sequence, with a measurement after each step, produced a number worth
-trusting. Full numbers, the per-hypothesis breakdown including how many
-rows per hypothesis are results-based vs. proxy-based, and what's still
-open: `docs/MODEL_CARD.md`.
+problem (label noise) that had been masked by the first; v3's fix of that
+produced a real but small-sample number; v4 added more data and walked
+that number back down to a more trustworthy one. Reporting v3's 0.68 as
+"the" result and stopping there would have been the more common mistake —
+a good-looking number from a small holdout, unchecked against more data.
+Full numbers, the per-hypothesis breakdown including how many rows per
+hypothesis are results-based vs. proxy-based, and what's still open:
+`docs/MODEL_CARD.md`.

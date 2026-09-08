@@ -88,6 +88,18 @@ _BIOMARKER_QUALIFIER = re.compile(
     r",?\s*\b[a-z0-9]+(-[a-z0-9]+)*\s+(positive|negative)\b", re.IGNORECASE
 )
 
+# Third instance of the same naming-mismatch class (carcinoma/cancer,
+# myelogenous/myeloid), found the same way — checking a new hypothesis
+# against the live API before hardcoding it (CD38/daratumumab/multiple
+# myeloma). Open Targets' disease name is "plasma cell myeloma" (formal);
+# CT.gov trials overwhelmingly say "Multiple Myeloma". Measured: without
+# this substitution, "multiple myeloma" vs Open Targets' entry scores 0.63.
+# Deliberately the literal two-word phrase, not a general "myeloma" rule —
+# "smoldering plasma cell myeloma" is a distinct precursor condition
+# (different clinical entity, different trials) and must not collapse into
+# plain multiple myeloma just because both contain "myeloma".
+_PLASMA_CELL_MYELOMA_SYNONYM = re.compile(r"\bplasma cell myeloma\b", re.IGNORECASE)
+
 
 def normalize_condition_text(raw: str) -> str:
     """Lowercase, strip punctuation, expand known abbreviations, and drop
@@ -100,6 +112,7 @@ def normalize_condition_text(raw: str) -> str:
     text = _BIOMARKER_QUALIFIER.sub("", text)
     text = _CARCINOMA_SYNONYM.sub("cancer", text)
     text = _MYELOGENOUS_SYNONYM.sub("myeloid", text)
+    text = _PLASMA_CELL_MYELOMA_SYNONYM.sub("multiple myeloma", text)
     text = _NON_ALNUM.sub(" ", text)
     text = " ".join(text.split())
     return CONDITION_ALIASES.get(text, text)

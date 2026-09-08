@@ -67,7 +67,7 @@ genuinely next, not yet built.
 | Entity resolution (condition/gene normalization + scored disease matching) | ✅ Implemented, tested |
 | Feature engineering / join pipeline (`trialsignal build-features`) | ✅ Implemented, tested |
 | Model training (temporal + CV split, LightGBM, SHAP) | ✅ Implemented, tested, trained on real data — **read the caveat below** |
-| FastAPI `/score` endpoint (live scoring) | ✅ Implemented, tested, verified against live Open Targets + ChEMBL for all 7 curated hypotheses |
+| FastAPI `/score` endpoint (live scoring) | ✅ Implemented, tested, verified against live Open Targets + ChEMBL for all 12 curated hypotheses |
 | Streamlit demo | ✅ Implemented — thin client over `/score`, renders risk score + SHAP + warnings |
 | Results-based label validation & correction (`trialsignal validate-labels`, `labels.resolve_trial_label`) | ✅ Implemented, tested, run on real data — found a real label-quality problem, then fixed it (see below) |
 
@@ -88,7 +88,7 @@ on a transient upstream 5xx, fixed by capping pagination depth and adding a
 clean 502 for genuine upstream failures (see `serving/api.py`'s module
 docstring and `docs/LIMITATIONS.md` item 8).
 
-**On the trained model — read this before looking at the AUC.** Three
+**On the trained model — read this before looking at the AUC.** Four
 versions, each shipped only after being measured against real data:
 
 - **v1** (2 hypotheses): ROC-AUC ≈ 0.92 — confounded. With only EGFR and
@@ -102,17 +102,28 @@ versions, each shipped only after being measured against real data:
   label itself.
 - **v3** (same 7 hypotheses, `resolve_trial_label` substituting each
   trial's real primary-endpoint result for the registry-status proxy
-  wherever CT.gov posted one — ~14% of trials): dataset grew from 405 to
-  **464 rows** (27 → **54 failures**; ABL1 alone went from 0 failures to 6
-  once real results were consulted — "imatinib never fails" was a labeling
-  artifact). Temporal ROC-AUC: **≈0.68 (LightGBM)** — a real, above-chance
-  result, with the CV-vs-temporal gap that flagged v2's number as unstable
-  (≈0.2 AUC) now down to ≈0.03–0.04 on the same data.
+  wherever CT.gov posted one — ~14% of trials): dataset grew to 464 rows,
+  54 failures (ABL1 alone went from 0 failures to 6 once real results were
+  consulted — "imatinib never fails" was a labeling artifact). Temporal
+  ROC-AUC: ≈0.68 (LightGBM) on a 48-row test set.
+- **v4** (12 hypotheses — 3 new disease areas: prostate, CLL, multiple
+  myeloma; 2 same-disease/different-mechanism additions for KDR and ERBB2):
+  dataset grew to **686 rows, 73 failures**. Temporal ROC-AUC: **≈0.63** —
+  *down* from v3, on purpose reported that way rather than only keeping the
+  better-looking number. Checked against CV before trusting either
+  direction: the CV-vs-temporal gap stayed just as tight in v4 (≈0.028) as
+  v3 (≈0.031), meaning v3's 0.68 was likely an optimistic read from a
+  small 48-row test set, and v4's larger 77-row test set is the more
+  reliable estimate of the same real, modestly-above-chance signal — not
+  evidence the new hypotheses hurt anything.
 
-**Still not decision-grade** — 48 rows in the temporal test set, and ~86%
-of the dataset is still registry-status-labeled, not results-based — but
-0.68 is a real signal, reproducibly measured two independent ways. Full
-numbers, the per-hypothesis breakdown, and the complete v1→v2→v3 reasoning:
+**Still not decision-grade**, and the number moved twice as more data
+arrived — which is the actual point of publishing all four versions
+instead of only the final one. ~86% of the dataset is still
+registry-status-labeled, not results-based (broadening that coverage was
+investigated and explicitly rejected as infeasible without fabricating
+labels — see `docs/LIMITATIONS.md` item 1a). Full numbers, the
+per-hypothesis breakdown, and the complete v1→v2→v3→v4 reasoning:
 [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) and
 [`docs/METHODS.md`](docs/METHODS.md).
 
@@ -185,23 +196,29 @@ docs/          # METHODS.md, MODEL_CARD.md, LIMITATIONS.md
 What would actually move the evaluation numbers, roughly in priority order
 (all cross-referenced from `docs/LIMITATIONS.md`):
 
-1. ~~Expand `CURATED_HYPOTHESES` beyond 2.~~ **Done** — now 7, chosen for
-   mechanistic diversity. Fixed the hypothesis-identity confound (temporal
-   split now works at all); on its own did *not* fix predictive accuracy
-   (temporal ROC-AUC stayed ≈0.5) — that took item 2 below as well.
+1. ~~Expand `CURATED_HYPOTHESES` beyond 2.~~ **Done, twice, ongoing.** 2 →
+   7 (fixed the hypothesis-identity confound; on its own did *not* fix
+   predictive accuracy, temporal ROC-AUC stayed ≈0.5 until item 2 below) →
+   12 (3 new disease areas — prostate, CLL, multiple myeloma — plus 2
+   same-disease/different-mechanism additions). Each expansion was
+   re-measured, not assumed to help: 7 hypotheses + item 2's fix gave
+   ≈0.68 on a 48-row test set; 12 hypotheses gave **≈0.63** on a larger,
+   more reliable 77-row test set — a downward correction, reported as one
+   (`docs/MODEL_CARD.md`). Continuing to add hypotheses remains the
+   validated lever; each addition needs its own naming-mismatch check
+   against the live API (3 for 3 so far — carcinoma/cancer, CML
+   myelogenous/myeloid, multiple/plasma-cell myeloma) and its own
+   re-measurement, not just a bigger number assumed to be better.
 2. ~~Parse CT.gov's trial *results* section~~ **Done.** `resolve_trial_label`
    substitutes the real primary-endpoint result for the registry-status
    proxy wherever available (~14% of trials) and rescues trials the proxy
-   alone excluded. Combined with item 1: temporal ROC-AUC ≈0.5 → **≈0.68**.
-   ~~Broadening coverage to the ~50% of trials with `hasResults=True`~~
-   **investigated and rejected** — checked against 133 real examples first
-   (same discipline as every other design decision here) and found ~70% of
-   that gap is safety-only endpoints or single-arm trials with no
-   comparator to judge success against at all, not a labeling problem a
-   heuristic can responsibly close (`docs/LIMITATIONS.md` item 1a). Real
-   next lever on accuracy: more curated hypotheses (item 1's approach,
-   which is validated to work) rather than forcing more out of this data
-   source.
+   alone excluded. ~~Broadening coverage to the ~50% of trials with
+   `hasResults=True`~~ **investigated and rejected** — checked against 133
+   real examples first (same discipline as every other design decision
+   here) and found ~70% of that gap is safety-only endpoints or single-arm
+   trials with no comparator to judge success against at all, not a
+   labeling problem a heuristic can responsibly close (`docs/LIMITATIONS.md`
+   item 1a).
 3. **Molecule-name-first ChEMBL queries** (search the compound, then pull
    its activities directly) instead of filtering a large target-level
    activity page — would make `chembl_matched_by_molecule_name=True` the

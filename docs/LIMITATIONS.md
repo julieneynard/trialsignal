@@ -82,26 +82,35 @@ Stated plainly, up front, rather than discovered by a reviewer.
    CML query. The pattern (a small, curated, documented synonym table
    rather than a general fuzzy-matching threshold change) generalizes; the
    next hypothesis added to `CURATED_HYPOTHESES` should expect to need its
-   own naming check against the live API before trusting it works. Measured
-   on the real dataset the current model was trained on (post item-1 fix —
-   numbers below include results-based rescues): pulling all
-   ClinicalTrials.gov trials for "non-small cell lung cancer" (3,977 trials)
-   and "chronic myeloid leukemia" (1,796 trials) yielded 21
-   osimertinib/NSCLC rows and 80 imatinib/CML rows after intervention
-   matching, label resolution, and disease matching. Most pulled trials
-   test a different drug entirely (expected — these are broad disease-level
-   pulls), and a meaningful share of the remainder are still
-   RECRUITING/ACTIVE_NOT_RECRUITING (expected for osimertinib specifically,
-   which is still mid-lifecycle) rather than resolution failures. The
-   `build-features` CLI reports this ratio (`N/M pulled trials matched`)
-   every run rather than hiding it. Separately, ChEMBL bioactivity matching
-   by molecule `pref_name` found zero marketed-drug-name matches in the
-   pulled activity pages for either target — `chembl_matched_by_molecule_name`
-   is `False` for every EGFR/ABL1 row, meaning ChEMBL features fell back to
-   target-level aggregates throughout. A molecule-name-first ChEMBL query
-   (search by compound name, then pull its activities directly, rather than
-   filtering a large target-level activity page) is the natural fix and is
-   on the roadmap, not yet built.
+   own naming check against the live API before trusting it works. A third
+   instance was found the same way when adding v4's hypotheses: Open
+   Targets names multiple myeloma "plasma cell myeloma," not "multiple
+   myeloma" — checked against the live API before hardcoding
+   CD38/daratumumab (per the project's standing rule), scored 0.63
+   unfixed, fixed with `_PLASMA_CELL_MYELOMA_SYNONYM` (deliberately the
+   literal phrase, not a general "myeloma" rule, since "smoldering plasma
+   cell myeloma" is a distinct precursor condition that must not collapse
+   into it). Three for three: every batch of new hypotheses added to this
+   project has needed its own naming check. Measured on the real dataset
+   the current model was trained on (post item-1 fix — numbers below
+   include results-based rescues): pulling all ClinicalTrials.gov trials
+   for "non-small cell lung cancer" (3,977 trials) and "chronic myeloid
+   leukemia" (1,796 trials) yielded 21 osimertinib/NSCLC rows and 80
+   imatinib/CML rows after intervention matching, label resolution, and
+   disease matching. Most pulled trials test a different drug entirely
+   (expected — these are broad disease-level pulls), and a meaningful
+   share of the remainder are still RECRUITING/ACTIVE_NOT_RECRUITING
+   (expected for osimertinib specifically, which is still mid-lifecycle)
+   rather than resolution failures. The `build-features` CLI reports this
+   ratio (`N/M pulled trials matched`) every run rather than hiding it.
+   Separately, ChEMBL bioactivity matching by molecule `pref_name` found
+   zero marketed-drug-name matches in the pulled activity pages for either
+   target — `chembl_matched_by_molecule_name` is `False` for every
+   EGFR/ABL1 row, meaning ChEMBL features fell back to target-level
+   aggregates throughout. A molecule-name-first ChEMBL query (search by
+   compound name, then pull its activities directly, rather than filtering
+   a large target-level activity page) is the natural fix and is on the
+   roadmap, not yet built.
 
    The 5 hypotheses added for v2 show the same funnel pattern, at varying
    yield: BRAF/vemurafenib/melanoma 26/3,728, ERBB2/trastuzumab/breast
@@ -112,7 +121,10 @@ Stated plainly, up front, rather than discovered by a reviewer.
    pull returned only 3 bioactivity records total (vs. hundreds for every
    small-molecule target) — expected, not a bug: ChEMBL is overwhelmingly
    small-molecule potency data, and PD-1 blockade by an antibody isn't
-   measured that way.
+   measured that way. The 5 hypotheses added for v4 continue the pattern:
+   AR/enzalutamide/prostate cancer 43/3,984, BTK/ibrutinib/CLL 48/2,601,
+   CD38/daratumumab/multiple myeloma 67/3,967, MTOR/everolimus/renal cell
+   carcinoma 46/2,710, CDK4/palbociclib/breast cancer 18/3,988.
 
 4. **[Fixed in v2, kept here as a worked example] 60 labeled rows from 2
    hypotheses was not enough to evaluate a model on, and v1's ROC-AUC
@@ -128,38 +140,44 @@ Stated plainly, up front, rather than discovered by a reviewer.
    regression. Full reasoning: `docs/METHODS.md` ("What the real numbers
    actually mean") and `docs/MODEL_CARD.md`. **This is still the most
    important thing to understand about this model**: the confound is fixed,
-   and (see #4a below, updated after limitation #1's fix) the label-quality
-   fix subsequently moved accuracy from near-chance to a real, if modest,
-   above-chance result — but 0.68 ROC-AUC is still far from a decision-grade
-   number, so read #4a's current text, not the "near-chance" framing this
-   note originally shipped with.
+   and (see #4a below, kept current as the model has been re-measured
+   through v3 and v4) the label-quality fix and further hypothesis growth
+   have since moved accuracy from near-chance to a real, modestly
+   above-chance result — read #4a's current text for the up-to-date number,
+   not the "near-chance" framing this note originally shipped with.
 
-4a. **[Updated after limitation #1's fix — no longer near-chance, but still
-   far from decision-grade.]** With the hypothesis-identity confound fixed
-   (limitation 4) and results-validated labels applied wherever available
-   (limitation 1), temporal ROC-AUC moved from ≈0.5 to **≈0.68** (LightGBM,
-   464 rows, 48-row temporal holdout) — a real, above-chance, reproducible
-   result: the CV-vs-temporal gap that flagged the earlier near-chance
-   number as unstable (≈0.2 AUC) has shrunk to ≈0.03-0.04 here, meaning two
-   independent evaluation methods now agree. It is still a small dataset
-   for 11 features (48 held-out rows carries real sampling uncertainty —
-   treat 0.68 as "meaningfully above chance," not a precise estimate), and
-   the feature set is still target/chemistry-level, missing protocol
+4a. **[Current as of v4 — no longer near-chance, but still far from
+   decision-grade, and the number has moved twice since this note was
+   first written.]** Confound fixed (limitation 4) + results-validated
+   labels (limitation 1) took temporal ROC-AUC from ≈0.5 (v2) to ≈0.68
+   (v3, 464 rows, 48-row test). Adding 5 more hypotheses for disease
+   diversity (v4, 686 rows, 77-row test) brought it to **≈0.63** — *down*
+   from v3, and confirmed as the more trustworthy number precisely because
+   the CV-vs-temporal gap (the metric this project uses throughout to
+   judge whether a number is real) stayed just as tight in v4 as v3
+   (≈0.028 vs ≈0.031) despite the point estimate dropping. Read that as
+   "v3's 48-row test set was noisy and happened to read high," not "adding
+   hypotheses hurt the model." It is still a modest dataset for 11 features
+   (77 held-out rows still carries real sampling uncertainty — treat 0.63
+   as "modestly above chance, reasonably estimated," not a precise value),
+   and the feature set is still target/chemistry-level, missing protocol
    design quality, patient selection criteria, and competitive landscape —
    real drivers of trial outcomes this pipeline has no source for. ~86% of
    rows are still registry-status-labeled, not results-based (limitation
-   1) — extending real-result coverage further is the most likely lever
-   left on this number.
+   1) — but broadening that coverage was investigated and rejected
+   (limitation 1a); further hypothesis growth, re-measured each time
+   rather than assumed to help, is the validated lever left.
 
 5. **[Fixed in v2] The v1 dataset's failures were clustered in time (all 3
    postdated 2021-06-29), which made a temporal train/test split
    impossible** — `train_and_evaluate` raised `InsufficientClassDiversityError`
    on that data, with no cutoff able to put both classes on both sides.
    This turned out to be a symptom of limitation 4 (too few, too similar
-   hypotheses), not an independent problem: with 7 hypotheses and failures
-   spread more broadly across drugs and time, a temporal split (cutoff
-   2020-01-01) now produces 416 train / 48 test rows (post limitation-1 fix;
-   361/44 before it) with both classes present in both.
+   hypotheses), not an independent problem: with more hypotheses and
+   failures spread more broadly across drugs and time, a temporal split
+   (cutoff 2020-01-01) now produces 609 train / 77 test rows (v4, 12
+   hypotheses; was 416/48 with 7 hypotheses post limitation-1 fix, 361/44
+   with 7 hypotheses pre-fix) with both classes present in both.
    `cross_validate_lightgbm` / `--eval-mode cv` remains in
    the codebase as the documented fallback for whenever a future dataset
    subset doesn't support a temporal split — this fix doesn't make that
@@ -184,7 +202,7 @@ Stated plainly, up front, rather than discovered by a reviewer.
    exhausted the client's retry budget. `/score` caps pagination at 2 pages
    per source instead (a cache-miss request now takes single-digit seconds
    — see `serving/api.py`'s module docstring for the full reasoning and the
-   sorted-by-score argument for why this is safe across all 7 current
+   sorted-by-score argument for why this is safe across all 12 current
    hypotheses). Two concurrent cache-miss requests for the *same*
    never-yet-cached hypothesis will both independently hit the live APIs
    rather than one waiting on the other's in-flight fetch — harmless

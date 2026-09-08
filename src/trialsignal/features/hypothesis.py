@@ -121,4 +121,62 @@ CURATED_HYPOTHESES: list[Hypothesis] = [
         drug_aliases=["pembrolizumab", "keytruda", "mk-3475"],
         ctgov_condition_query="melanoma",
     ),
+    Hypothesis(
+        # New disease area (prostate) and new mechanism class (a nuclear
+        # hormone receptor antagonist, not a kinase/antibody/PARP inhibitor)
+        # — added specifically for disease diversity, not just target count.
+        name="AR / enzalutamide / prostate cancer",
+        gene_symbol="AR",
+        ensembl_target_id="ENSG00000169083",
+        chembl_target_id="CHEMBL1871",
+        drug_aliases=["enzalutamide", "xtandi", "mdv3100"],
+        ctgov_condition_query="prostate cancer",
+    ),
+    Hypothesis(
+        # New disease area (CLL, distinct from ABL1's CML) and new
+        # mechanism (BTK inhibitor) — a blood cancer outside the CML/AML
+        # space this set otherwise lacks.
+        name="BTK / ibrutinib / chronic lymphocytic leukemia",
+        gene_symbol="BTK",
+        ensembl_target_id="ENSG00000010671",
+        chembl_target_id="CHEMBL5251",
+        drug_aliases=["ibrutinib", "imbruvica", "pci-32765"],
+        ctgov_condition_query="chronic lymphocytic leukemia",
+    ),
+    Hypothesis(
+        # New disease area (multiple myeloma) and a third antibody in the
+        # set. Open Targets names this disease "plasma cell myeloma" (see
+        # entity_resolution.py's _PLASMA_CELL_MYELOMA_SYNONYM, found by
+        # checking this exact hypothesis against the live API before
+        # hardcoding it — same discipline as CML's myelogenous/myeloid gap).
+        name="CD38 / daratumumab / multiple myeloma",
+        gene_symbol="CD38",
+        ensembl_target_id="ENSG00000004468",
+        chembl_target_id="CHEMBL4660",
+        drug_aliases=["daratumumab", "darzalex"],
+        ctgov_condition_query="multiple myeloma",
+    ),
+    Hypothesis(
+        # Same disease as KDR (renal cell carcinoma) but a different
+        # mechanism (mTOR inhibitor, not VEGFR) — deliberately included to
+        # give the model same-disease/different-mechanism contrast, not
+        # just different-disease contrast.
+        name="MTOR / everolimus / renal cell carcinoma",
+        gene_symbol="MTOR",
+        ensembl_target_id="ENSG00000198793",
+        chembl_target_id="CHEMBL2842",
+        drug_aliases=["everolimus", "afinitor", "rad001"],
+        ctgov_condition_query="renal cell carcinoma",
+    ),
+    Hypothesis(
+        # Same disease as ERBB2 (breast cancer) but a different mechanism
+        # (CDK4/6, cell-cycle inhibition) — the other same-disease/
+        # different-mechanism pair, alongside MTOR/KDR above.
+        name="CDK4 / palbociclib / breast cancer",
+        gene_symbol="CDK4",
+        ensembl_target_id="ENSG00000135446",
+        chembl_target_id="CHEMBL331",
+        drug_aliases=["palbociclib", "ibrance", "pd-0332991", "pd0332991"],
+        ctgov_condition_query="breast cancer",
+    ),
 ]
