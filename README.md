@@ -87,17 +87,23 @@ on a transient upstream 5xx, fixed by capping pagination depth and adding a
 clean 502 for genuine upstream failures (see `serving/api.py`'s module
 docstring and `docs/LIMITATIONS.md` item 8).
 
-**On the trained model — read this before looking at the AUC.** The full
-pipeline was run end-to-end on real data: two curated hypotheses
-(EGFR/osimertinib/NSCLC, ABL1/imatinib/CML), 5,773 pulled trials → 60
-labeled feature rows → a trained LightGBM model (ROC-AUC ≈ 0.92, 3-fold CV).
-That number is **not evidence of a working predictive model** — with only 2
-hypotheses and all 3 failures coming from one of them, the model can score
-well largely by learning "which drug is this," a confound documented in
-detail in [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) and
-[`docs/LIMITATIONS.md`](docs/LIMITATIONS.md). Finding and stating that
-limitation clearly, rather than reporting the AUC at face value, is the part
-of this milestone actually worth reading.
+**On the trained model — read this before looking at the AUC.** v1 trained
+on 2 hypotheses and reported ROC-AUC ≈ 0.92 — a confounded number, not a
+working model (the model could score well just by learning "which of the 2
+drugs is this," see the git history and old MODEL_CARD.md revisions for the
+full story). **`CURATED_HYPOTHESES` has since been expanded to 7**,
+deliberately diverse in mechanism (a kinase inhibitor set, a monoclonal
+antibody, a PARP inhibitor, a PD-1 checkpoint inhibitor) across 6 diseases,
+specifically to remove that shortcut. Result: 405 labeled rows, failures
+spread across 5 of 7 hypotheses, and — for the first time — a temporal
+train/test split that actually works (361 train / 44 test, both classes on
+both sides). The honest temporal ROC-AUC is **≈0.49–0.53, chance level**.
+That's not a regression, it's the real finding: once the confound is gone,
+this feature set doesn't yet predict trial risk better than chance on a
+genuine future-trial holdout. Full reasoning, the CV-vs-temporal comparison
+that demonstrates *why* temporal splitting matters, and what would plausibly
+close the gap: [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) and
+[`docs/METHODS.md`](docs/METHODS.md).
 
 ## Quickstart
 
@@ -161,20 +167,21 @@ docs/          # METHODS.md, MODEL_CARD.md, LIMITATIONS.md
 
 ## Roadmap
 
-What would actually make this project's evaluation numbers meaningful,
-roughly in priority order (all cross-referenced from `docs/LIMITATIONS.md`):
+What would actually move the evaluation numbers, roughly in priority order
+(all cross-referenced from `docs/LIMITATIONS.md`):
 
-1. **Expand `CURATED_HYPOTHESES` beyond 2.** The real fix for the current
-   model's hypothesis-identity confound (see MODEL_CARD.md) — not a
-   modeling change, a data-coverage one.
-2. **Molecule-name-first ChEMBL queries** (search the compound, then pull
+1. ~~Expand `CURATED_HYPOTHESES` beyond 2.~~ **Done** — now 7, chosen for
+   mechanistic diversity. Fixed the hypothesis-identity confound (temporal
+   split now works at all); did *not* fix predictive accuracy (temporal
+   ROC-AUC ≈0.5) — see LIMITATIONS.md item 4a, that's the current bottleneck.
+2. **Parse CT.gov's trial *results* section** (effect sizes / p-values) to
+   make "success" mean "met its primary endpoint," not "wasn't terminated
+   for cause" — now the most likely lever on the near-chance accuracy
+   (LIMITATIONS.md items 1 and 4a), ahead of adding still more hypotheses.
+3. **Molecule-name-first ChEMBL queries** (search the compound, then pull
    its activities directly) instead of filtering a large target-level
    activity page — would make `chembl_matched_by_molecule_name=True` the
    normal case instead of the exception it is today.
-3. **Parse CT.gov's trial *results* section** (effect sizes / p-values)
-   to make "success" mean "met its primary endpoint," not "wasn't
-   terminated for cause" — the single biggest label-quality gap (see
-   LIMITATIONS.md item 1).
 4. **Per-hypothesis fetch locking** in the API, so two concurrent
    cache-miss requests for the same hypothesis don't both hit the live
    APIs independently (LIMITATIONS.md item 8).

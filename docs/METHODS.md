@@ -83,28 +83,43 @@ not mislabeled as a failure. The stop-reason classifier and its test suite
   plotting is not yet built (v1's sample size is too small for the
   per-bin counts to mean anything — see below).
 
-## What v1's real numbers actually mean (read before citing the AUC)
+## What the real numbers actually mean (read before citing the AUC)
 
-The current curated dataset is 2 hypotheses (EGFR/osimertinib/NSCLC,
-ABL1/imatinib/CML), 60 labeled trials total, 57 success / **3** failure — see
-`docs/LIMITATIONS.md` for exactly how that number was arrived at. A real
-training run (`trialsignal train ... --eval-mode cv`, 3-fold stratified CV,
-forced by `InsufficientClassDiversityError` on the temporal split — every
-failure is dated 2021+) produced ROC-AUC ≈ 0.92 for both models.
+**v1 (2 hypotheses, superseded).** The original dataset was EGFR/osimertinib
+(NSCLC) and ABL1/imatinib (CML) — 60 labeled trials, 57 success / 3 failure,
+all 3 failures EGFR. A temporal split was literally impossible (every
+failure postdated 2021), so evaluation used 3-fold CV, reporting ROC-AUC ≈
+0.92. That number was not evidence of a working model: with only 2
+hypotheses, any feature differing systematically between EGFR and ABL1 for
+real biological reasons (e.g. `ot_tractable_antibody`, 0 for every ABL1 row
+and 1 for every EGFR row) was statistically indistinguishable from "which
+drug is this," a trivial, non-generalizing predictor.
 
-**That number is not evidence the model has learned a generalizable
-trial-risk signal, and should not be read as one.** All 3 failures are EGFR
-trials; all 42 ABL1 trials are successes. With only 2 hypotheses in the
-data, any feature that differs systematically between EGFR and ABL1 — and
-several genuinely do, for real biological reasons (ABL1 is an intracellular
-kinase, not antibody-tractable; EGFR is a cell-surface receptor, and is) —
-is statistically indistinguishable from "which of the two drugs is this,"
-a trivial predictor with zero generalization value. The run's own top SHAP
-feature, `ot_tractable_antibody`, is a clean illustration: it is 0 for every
-ABL1 row and 1 for every EGFR row, i.e. perfectly collinear with hypothesis
-identity in this dataset. A high AUC built substantially on that kind of
-feature says "the model can tell EGFR trials from ABL1 trials," not "the
-model predicts trial risk." Evaluation only becomes meaningful once the
-curated hypothesis list (`features/hypothesis.py`) is large enough that no
-single feature perfectly separates hypotheses — that's the real bar for
-v2, not a higher AUC on the current data.
+**v2 (7 hypotheses, current).** `CURATED_HYPOTHESES` was expanded to 7,
+chosen for mechanistic diversity specifically to eliminate that shortcut
+(see [`hypothesis.py`](../src/trialsignal/features/hypothesis.py)'s module
+docstring) — 405 labeled trials, 378 success / 27 failure, with failures
+now spread across 5 of 7 hypotheses. Two things changed as a direct result:
+
+1. **A temporal split now works.** Cutoff 2020-01-01 gives 361 train / 44
+   test with both classes present on both sides —
+   `InsufficientClassDiversityError` no longer fires. This alone confirms
+   v1's data problem (all failures clustered post-2021) was a symptom of
+   having too few, too similar hypotheses, not an unrelated bug.
+
+2. **The temporal ROC-AUC dropped to ≈ 0.49–0.53 — chance level.** This is
+   the honest result, not a regression. Once the model can no longer win by
+   learning hypothesis identity, it shows no real ability to predict
+   which post-2020 trials succeed from public target/chemistry-level
+   features alone. Compare against the same data evaluated by 5-fold CV
+   (ROC-AUC ≈ 0.66–0.72, *higher*): CV folds are random, not time-ordered,
+   so same-hypothesis rows still land on both sides of most folds, letting
+   the model partially learn hypothesis-correlated patterns even without an
+   explicit identity feature — leakage the temporal split is specifically
+   designed to prevent. That ~0.2 AUC gap between the two evaluation modes,
+   on identical data, is the clearest concrete evidence in this repo for
+   why temporal splitting is the correct methodology and CV is a fallback,
+   not a matter of preference.
+
+Full numbers, the per-hypothesis breakdown, and what would plausibly move
+the near-chance result: `docs/MODEL_CARD.md`.

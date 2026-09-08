@@ -50,33 +50,62 @@ Stated plainly, up front, rather than discovered by a reviewer.
    rather than filtering a large target-level activity page) is the natural
    fix and is on the roadmap, not yet built.
 
-4. **60 labeled rows from 2 hypotheses is not enough to evaluate a model
-   on, and the trained v1 model's ROC-AUC (~0.92) should not be read as
-   evidence it works.** All 3 failure-labeled trials in the dataset are
-   EGFR trials; all 42 ABL1 trials are successes — meaning class label is
-   almost perfectly confounded with *which of the two curated hypotheses*
-   a row belongs to. The trained model's top SHAP feature,
-   `ot_tractable_antibody`, is 0 for every ABL1 row and 1 for every EGFR
-   row: a real biological fact (ABL1 is intracellular, EGFR is a
-   cell-surface receptor) that in this dataset is indistinguishable from a
-   literal "is this an EGFR trial" indicator. A model can score well here
-   by learning to tell the two hypotheses apart, which is not the same
-   claim as "predicts trial risk." See `docs/METHODS.md` ("What v1's real
-   numbers actually mean") and `docs/MODEL_CARD.md` for the full reasoning
-   — this is the single most important caveat on the current model, more
-   important than any of the others in this document. It resolves only by
-   adding enough distinct hypotheses that no one feature separates them.
+   The 5 hypotheses added for v2 show the same funnel pattern, at varying
+   yield: BRAF/vemurafenib/melanoma 26/3,728, ERBB2/trastuzumab/breast
+   cancer 100/3,988, KDR/sunitinib/renal cell carcinoma 87/2,710,
+   PARP1/olaparib/ovarian cancer 24/3,990, PDCD1/pembrolizumab/melanoma
+   108/3,728 — consistent with this being a structural property of broad
+   disease-level pulls, not specific to the original two. PDCD1's ChEMBL
+   pull returned only 3 bioactivity records total (vs. hundreds for every
+   small-molecule target) — expected, not a bug: ChEMBL is overwhelmingly
+   small-molecule potency data, and PD-1 blockade by an antibody isn't
+   measured that way.
 
-5. **The real dataset's failures are clustered in time (all 3 postdate
-   2021-06-29), which made a temporal train/test split impossible.**
-   `train_and_evaluate` (the methodologically correct `--eval-mode temporal`)
-   raises `InsufficientClassDiversityError` on this data — no cutoff date
-   produces a training split containing both classes. The reported v1
-   numbers use `--eval-mode cv` (stratified k-fold) instead, a documented
-   downgrade that reintroduces the temporal-leakage risk `temporal_split`
-   exists to prevent (see `docs/METHODS.md`). This is a direct consequence
-   of limitation 4 above (too little data, too concentrated) rather than a
-   separate root cause.
+4. **[Fixed in v2, kept here as a worked example] 60 labeled rows from 2
+   hypotheses was not enough to evaluate a model on, and v1's ROC-AUC
+   (~0.92) was not evidence it worked.** All 3 failure-labeled trials were
+   EGFR trials; all 42 ABL1 trials were successes — class label was almost
+   perfectly confounded with *which curated hypothesis* a row belonged to.
+   `CURATED_HYPOTHESES` was expanded from 2 to 7 specifically to fix this
+   (see `hypothesis.py`'s module docstring), chosen for mechanistic
+   diversity (a monoclonal antibody, a PARP inhibitor, a PD-1 checkpoint
+   inhibitor, across 6 diseases) rather than just more of the same shape of
+   data. Result: 405 rows, 27 failures spread across 5 of 7 hypotheses, and
+   the temporal ROC-AUC dropped to ≈0.5 (chance) — the honest number, not a
+   regression. Full reasoning: `docs/METHODS.md` ("What the real numbers
+   actually mean") and `docs/MODEL_CARD.md`. **This is still the most
+   important thing to understand about this model**: the confound is fixed,
+   but the near-chance result means the current public feature set doesn't
+   yet predict trial risk well — that's a different, now-honest limitation
+   (see #4a below), not the one described here.
+
+4a. **Even with the confound fixed, near-chance accuracy means the current
+   features likely don't capture what actually drives trial outcomes.**
+   405 rows for 11 features, evaluated on a genuine 44-row temporal holdout,
+   is still a small, noisy estimate — but the CV-vs-temporal gap (≈0.66-0.72
+   vs ≈0.49-0.53 ROC-AUC on identical data, see METHODS.md) is concrete
+   evidence the temporal number reflects real difficulty, not just sample
+   noise pulling toward 0.5. The features available (target-disease
+   association scores, coarse bioactivity aggregates, trial phase/enrollment)
+   are target/chemistry-level and never see the things that plausibly drive
+   most real trial outcomes: protocol design quality, patient selection
+   criteria, competitive landscape, or the actual efficacy/safety data
+   itself (see limitation #1 — the label is a registry-status proxy, not a
+   results-based outcome). Closing this gap is a data problem before it's a
+   modeling problem.
+
+5. **[Fixed in v2] The v1 dataset's failures were clustered in time (all 3
+   postdated 2021-06-29), which made a temporal train/test split
+   impossible** — `train_and_evaluate` raised `InsufficientClassDiversityError`
+   on that data, with no cutoff able to put both classes on both sides.
+   This turned out to be a symptom of limitation 4 (too few, too similar
+   hypotheses), not an independent problem: with 7 hypotheses and failures
+   spread more broadly across drugs and time, a temporal split (cutoff
+   2020-01-01) now produces 361 train / 44 test rows with both classes
+   present in both. `cross_validate_lightgbm` / `--eval-mode cv` remains in
+   the codebase as the documented fallback for whenever a future dataset
+   subset doesn't support a temporal split — this fix doesn't make that
+   fallback obsolete, just unnecessary for the current full dataset.
 
 6. **Public-data-only.** No access to unpublished internal pharma trial data,
    proprietary ADMET assays, or FDA advisory committee deliberations — all of
@@ -97,7 +126,7 @@ Stated plainly, up front, rather than discovered by a reviewer.
    exhausted the client's retry budget. `/score` caps pagination at 2 pages
    per source instead (a cache-miss request now takes single-digit seconds
    — see `serving/api.py`'s module docstring for the full reasoning and the
-   sorted-by-score argument for why this is safe for the two current
+   sorted-by-score argument for why this is safe across all 7 current
    hypotheses). Two concurrent cache-miss requests for the *same*
    never-yet-cached hypothesis will both independently hit the live APIs
    rather than one waiting on the other's in-flight fetch — harmless
