@@ -141,6 +141,50 @@ def build_features(
 
 
 @app.command()
+def validate_labels(
+    feature_tables: Annotated[
+        list[Path], typer.Argument(help="One or more CSV outputs from build-features.")
+    ],
+    batch_size: Annotated[
+        int, typer.Option(help="NCT IDs per CT.gov query.term OR-clause.")
+    ] = 50,
+) -> None:
+    """Cross-check the registry-status label against each trial's real
+    primary-endpoint p-value, re-fetched live from ClinicalTrials.gov.
+
+    Coverage is expected to be low (~5-10% of rows) — see
+    clinicaltrials.py's module docstring for why — so this reports an
+    agreement rate on whatever subset has a usable signal, plus every
+    disagreement found, rather than a pass/fail verdict. See
+    docs/METHODS.md for how to read the result."""
+    from trialsignal.features.label_validation import validate_labels as run_validation
+
+    rows: list[dict[str, str]] = []
+    for path in feature_tables:
+        with path.open(newline="", encoding="utf-8") as f:
+            rows.extend(csv.DictReader(f))
+
+    client = ClinicalTrialsClient()
+    trials = client.fetch_by_nct_ids([r["nct_id"] for r in rows], batch_size=batch_size)
+    client.close()
+    trials_by_nct_id = {t.nct_id: t for t in trials}
+
+    report = run_validation(rows, trials_by_nct_id)
+
+    typer.echo(
+        f"{report.n_with_usable_signal}/{report.n_rows_checked} rows had a usable "
+        f"primary-endpoint p-value."
+    )
+    if report.agreement_rate is not None:
+        typer.echo(f"Agreement with registry-status label: {report.agreement_rate:.1%}")
+    for d in report.disagreements:
+        typer.echo(
+            f"  DISAGREE {d.nct_id}: labeled {d.existing_label!r}, primary p={d.primary_pvalue} "
+            f"({d.primary_analysis_type})"
+        )
+
+
+@app.command()
 def train(
     feature_tables: Annotated[
         list[Path], typer.Argument(help="One or more CSV outputs from build-features.")

@@ -2,13 +2,23 @@
 
 Stated plainly, up front, rather than discovered by a reviewer.
 
-1. **"Completed" is a proxy for success, not proof of it.** A trial can run
-   to completion and still miss its primary endpoint. CT.gov's registry
-   *status* field alone can't distinguish that — it would require parsing the
-   trial *results* section (effect sizes / p-values against the declared
-   primary outcome), which is a documented extension, not part of v1's label.
-   Treat `risk_score` as "probability the trial isn't abandoned for cause,"
-   not "probability the drug works."
+1. **"Completed" is a proxy for success, not proof of it — now confirmed
+   empirically, not just argued.** `trialsignal validate-labels`
+   (`features/label_validation.py`) re-fetches each trained trial's real
+   results section and compares its primary-endpoint p-value against the
+   registry-status label. Run on the full 405-row dataset: only 38 rows
+   (~9%) had a usable p-value (see `clinicaltrials.py`'s module docstring
+   for why coverage is this sparse), but among those, agreement was only
+   **65.8%** — and all 13 disagreements ran the same direction: a trial
+   labeled `success` (it was `COMPLETED`, not terminated) whose primary
+   endpoint did **not** reach statistical significance (p-values from 0.08
+   to 0.98). Zero disagreements ran the other way (`failure`-labeled trial
+   with a significant result) — consistent with `labels.py`'s stop-reason
+   classifier already being conservative about assigning `FAILURE`. Treat
+   `risk_score` as "probability the trial wasn't abandoned for cause," not
+   "probability the drug worked" — this is no longer a hypothetical
+   caveat, roughly a third of checkable "success" labels don't hold up
+   against the trial's own reported statistics.
 
 2. **Stop-reason classification is keyword-based, not a trained classifier.**
    `classify_stop_reason` (see `labels.py`) uses regex pattern matching over

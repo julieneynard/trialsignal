@@ -46,6 +46,24 @@ reasons carries no signal about the drug and must be excluded from training,
 not mislabeled as a failure. The stop-reason classifier and its test suite
 (`tests/unit/test_labels.py`) are the part of this repo worth reading first.
 
+**How good is that proxy, really?** `clinicaltrials.py` also extracts each
+trial's real primary-endpoint p-value from CT.gov's results section, when
+one is posted and structured enough to parse (`TrialRecord.primary_pvalue`)
+— see its module docstring for exactly how sparse that is (~9% of trials in
+this dataset). `trialsignal validate-labels`
+([`label_validation.py`](../src/trialsignal/features/label_validation.py))
+cross-checks the registry-status label against that independent signal
+wherever both exist. Run on the full dataset: 65.8% agreement on the 38
+checkable rows, with every disagreement in the same direction — a
+`COMPLETED` trial (labeled `success`) whose primary endpoint did not reach
+significance. That's an empirical measurement of the proxy's real error
+rate, not a caveat left as a guess — see `docs/LIMITATIONS.md` item 1 for
+the full numbers. This tool is a validation check, not a label source: 9%
+coverage is far too sparse to train on directly (see METHODS.md above on
+why the entity-resolution/coverage tradeoffs matter), so it does not change
+which trials get a label today — it changes how much to trust the ones
+that do.
+
 ## Modeling
 
 - **Baseline**: logistic regression on the feature set below — exists to

@@ -71,3 +71,32 @@ def test_transient_5xx_is_retried_then_succeeds() -> None:
 
     assert [r.nct_id for r in records] == ["NCT00000002"]
     assert route.call_count == 2
+
+
+@respx.mock
+def test_fetch_by_nct_ids_batches_requests() -> None:
+    """3 IDs with batch_size=2 must be one batch of 2 + one batch of 1 —
+    not one request per ID (that's exactly the pattern that hit 429s
+    against the live API, see fetch_by_nct_ids's docstring)."""
+    route = respx.get(BASE_URL)
+    route.side_effect = [httpx.Response(200, json=_PAGE_1), httpx.Response(200, json=_PAGE_2)]
+
+    client = ClinicalTrialsClient()
+    records = client.fetch_by_nct_ids(["NCT1", "NCT2", "NCT3"], batch_size=2)
+
+    assert route.call_count == 2
+    first_request = route.calls[0].request
+    assert "AREA%5BNCTId%5D" in str(first_request.url) or "AREA[NCTId]" in str(first_request.url)
+    assert [r.nct_id for r in records] == ["NCT00000001", "NCT00000002"]
+
+
+@respx.mock
+def test_fetch_by_nct_ids_skips_malformed_studies() -> None:
+    route = respx.get(BASE_URL)
+    route.side_effect = [httpx.Response(200, json={"studies": [{}]})]
+
+    client = ClinicalTrialsClient()
+    records = client.fetch_by_nct_ids(["NCT1"])
+
+    assert records == []
+    assert route.call_count == 1

@@ -53,6 +53,16 @@ class TrialRecord(BaseModel):
     why_stopped: str | None = None  # free text, only present for TERMINATED/WITHDRAWN
     study_type: str | None = None
 
+    # Results-section fields (see clinicaltrials.py's module docstring on
+    # coverage: measured at ~5-10% of trials having a usable value here,
+    # even though ~50% have *some* results posted — most posted results
+    # don't include a parseable primary-endpoint p-value). This is a
+    # cross-validation signal for the status-based label in labels.py, not
+    # a replacement for it; labels.py does not read these fields.
+    has_results: bool = False
+    primary_pvalue: float | None = None
+    primary_analysis_type: str | None = None  # e.g. "SUPERIORITY", "NON_INFERIORITY", "OTHER"
+
     @property
     def max_phase(self) -> TrialPhase | None:
         order = list(TrialPhase)

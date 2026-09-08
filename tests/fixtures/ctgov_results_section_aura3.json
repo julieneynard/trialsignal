@@ -1,0 +1,51 @@
+{
+  "hasResults": true,
+  "protocolSection": {
+    "identificationModule": {
+      "nctId": "NCT02296125",
+      "briefTitle": "AZD9291 Versus Platinum-based Doublet-chemotherapy in Locally Advanced or Metastatic Non-small Cell Lung Cancer"
+    },
+    "statusModule": { "overallStatus": "COMPLETED" },
+    "designModule": { "studyType": "INTERVENTIONAL", "phases": ["PHASE3"] },
+    "conditionsModule": { "conditions": ["Non-Small Cell Lung Cancer"] },
+    "armsInterventionsModule": { "interventions": [{ "name": "Osimertinib" }] },
+    "sponsorCollaboratorsModule": {
+      "leadSponsor": { "name": "AstraZeneca", "class": "INDUSTRY" }
+    }
+  },
+  "resultsSection": {
+    "outcomeMeasuresModule": {
+      "outcomeMeasures": [
+        {
+          "type": "PRIMARY",
+          "title": "Median Progression Free Survival (PFS) (Months)",
+          "analyses": [
+            {
+              "groupIds": ["OG000", "OG001"],
+              "nonInferiorityType": "SUPERIORITY",
+              "pValue": "<0.0001",
+              "statisticalMethod": "Log Rank",
+              "paramType": "Hazard Ratio (HR)",
+              "paramValue": "0.46"
+            },
+            {
+              "groupIds": ["OG002", "OG003"],
+              "nonInferiorityType": "OTHER",
+              "pValue": "0.0065",
+              "statisticalMethod": "Log Rank",
+              "paramType": "Hazard Ratio (HR)",
+              "paramValue": "0.56"
+            }
+          ]
+        },
+        {
+          "type": "SECONDARY",
+          "title": "Overall Survival",
+          "analyses": [
+            { "groupIds": ["OG000", "OG001"], "pValue": "0.0189", "statisticalMethod": "Log Rank" }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,9 +1,12 @@
 import csv
 from pathlib import Path
 
+import httpx
+import respx
 from typer.testing import CliRunner
 
 from trialsignal.cli import app
+from trialsignal.data.clinicaltrials import BASE_URL
 from trialsignal.data.schemas import (
     ChemblActivity,
     TargetDiseaseAssociation,
@@ -107,3 +110,57 @@ def test_build_features_unknown_hypothesis_exits_nonzero(tmp_path: Path) -> None
 
     assert result.exit_code == 1
     assert "Unknown hypothesis" in result.output
+
+
+@respx.mock
+def test_validate_labels_reports_agreement_and_disagreements(tmp_path: Path) -> None:
+    features_path = tmp_path / "features.csv"
+    with features_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["nct_id", "label"])
+        writer.writeheader()
+        writer.writerow({"nct_id": "NCT001", "label": "success"})
+        writer.writerow({"nct_id": "NCT002", "label": "failure"})
+
+    respx.get(BASE_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "studies": [
+                    {
+                        "hasResults": True,
+                        "protocolSection": {
+                            "identificationModule": {"nctId": "NCT001", "briefTitle": "t1"},
+                            "statusModule": {"overallStatus": "COMPLETED"},
+                        },
+                        "resultsSection": {
+                            "outcomeMeasuresModule": {
+                                "outcomeMeasures": [
+                                    {
+                                        "type": "PRIMARY",
+                                        "analyses": [
+                                            {"pValue": "0.30", "nonInferiorityType": "SUPERIORITY"}
+                                        ],
+                                    }
+                                ]
+                            }
+                        },
+                    },
+                    {
+                        "hasResults": False,
+                        "protocolSection": {
+                            "identificationModule": {"nctId": "NCT002", "briefTitle": "t2"},
+                            "statusModule": {"overallStatus": "TERMINATED"},
+                        },
+                    },
+                ]
+            },
+        )
+    )
+
+    result = runner.invoke(app, ["validate-labels", str(features_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "1/2 rows had a usable primary-endpoint p-value" in result.output
+    # NCT001: p=0.30 (not significant) but labeled "success" -> disagreement.
+    assert "DISAGREE NCT001" in result.output
+    assert "Agreement with registry-status label: 0.0%" in result.output

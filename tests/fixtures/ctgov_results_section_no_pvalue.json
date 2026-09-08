@@ -1,0 +1,22 @@
+{
+  "hasResults": true,
+  "protocolSection": {
+    "identificationModule": { "nctId": "NCT00000002", "briefTitle": "Pharmacokinetic study" },
+    "statusModule": { "overallStatus": "COMPLETED" },
+    "designModule": { "studyType": "INTERVENTIONAL" },
+    "conditionsModule": { "conditions": ["Non-Small Cell Lung Cancer"] },
+    "armsInterventionsModule": { "interventions": [{ "name": "Osimertinib" }] },
+    "sponsorCollaboratorsModule": { "leadSponsor": { "name": "Sponsor", "class": "INDUSTRY" } }
+  },
+  "resultsSection": {
+    "outcomeMeasuresModule": {
+      "outcomeMeasures": [
+        {
+          "type": "PRIMARY",
+          "title": "Cmax of Simvastatin",
+          "classes": [{ "categories": [{ "measurements": [{ "groupId": "OG000", "value": "12.3" }] }] }]
+        }
+      ]
+    }
+  }
+}

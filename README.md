@@ -67,8 +67,9 @@ genuinely next, not yet built.
 | Entity resolution (condition/gene normalization + scored disease matching) | ✅ Implemented, tested |
 | Feature engineering / join pipeline (`trialsignal build-features`) | ✅ Implemented, tested |
 | Model training (temporal + CV split, LightGBM, SHAP) | ✅ Implemented, tested, trained on real data — **read the caveat below** |
-| FastAPI `/score` endpoint (live scoring) | ✅ Implemented, tested, verified against live Open Targets + ChEMBL for both curated hypotheses |
+| FastAPI `/score` endpoint (live scoring) | ✅ Implemented, tested, verified against live Open Targets + ChEMBL for all 7 curated hypotheses |
 | Streamlit demo | ✅ Implemented — thin client over `/score`, renders risk score + SHAP + warnings |
+| Results-based label validation (`trialsignal validate-labels`) | ✅ Implemented, tested, run on real data — confirms the status-based label's known weak point empirically (see below) |
 
 All three source clients are verified against their live APIs, not just
 fixtures — see the module docstrings in `clinicaltrials.py`, `open_targets.py`,
@@ -105,6 +106,20 @@ that demonstrates *why* temporal splitting matters, and what would plausibly
 close the gap: [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) and
 [`docs/METHODS.md`](docs/METHODS.md).
 
+**On the label itself — `trialsignal validate-labels` now measures its real
+error rate.** The registry-status label (`COMPLETED` → success) was always
+documented as a proxy, not a direct measurement (LIMITATIONS.md item 1).
+That's no longer a hypothetical caveat: re-fetching each trained trial's
+actual primary-endpoint statistical result and comparing it against the
+label gives **65.8% agreement** on the 38/405 rows (~9%) where a real
+result is posted and parseable — and every disagreement runs the same
+direction, a `success`-labeled trial whose primary endpoint didn't reach
+statistical significance. Coverage is too sparse (~9%) to use as the
+primary label source, but the number itself is the headline finding: **the
+current label is very likely optimistic for roughly a third of the "success"
+rows it can be checked against.** See `docs/LIMITATIONS.md` item 1 and
+`docs/METHODS.md`'s label-construction section for the full breakdown.
+
 ## Quickstart
 
 ```bash
@@ -130,6 +145,10 @@ trialsignal build-features "EGFR / osimertinib / NSCLC" \
 # train (temporal split is the correct default; falls back to --eval-mode cv
 # when there isn't enough data per class per time period — see METHODS.md)
 trialsignal train data/processed/egfr_nsclc_features.csv --eval-mode cv
+
+# check how much the registry-status label can be trusted, on the trials
+# that have a real, checkable result posted (see docs/LIMITATIONS.md item 1)
+trialsignal validate-labels data/processed/egfr_nsclc_features.csv
 
 # run the API
 trialsignal serve
@@ -174,10 +193,16 @@ What would actually move the evaluation numbers, roughly in priority order
    mechanistic diversity. Fixed the hypothesis-identity confound (temporal
    split now works at all); did *not* fix predictive accuracy (temporal
    ROC-AUC ≈0.5) — see LIMITATIONS.md item 4a, that's the current bottleneck.
-2. **Parse CT.gov's trial *results* section** (effect sizes / p-values) to
-   make "success" mean "met its primary endpoint," not "wasn't terminated
-   for cause" — now the most likely lever on the near-chance accuracy
-   (LIMITATIONS.md items 1 and 4a), ahead of adding still more hypotheses.
+2. ~~Parse CT.gov's trial *results* section~~ **Half done.** `primary_pvalue`
+   extraction and `trialsignal validate-labels` exist and confirmed the
+   proxy label is optimistic on ~1/3 of checkable rows (LIMITATIONS.md item
+   1) — but coverage (~9%) is still too sparse to use as the actual training
+   label. What's left: either (a) find a second, more broadly-covered
+   results-derived signal (e.g. `hasResults` plus arm-level effect direction
+   without requiring a formal p-value, ~50% coverage vs ~9%), or (b) accept
+   the sparsity and use `primary_pvalue` only to filter/reweight rows in
+   training rather than relabel them. Still the most likely lever on the
+   near-chance accuracy (LIMITATIONS.md item 4a).
 3. **Molecule-name-first ChEMBL queries** (search the compound, then pull
    its activities directly) instead of filtering a large target-level
    activity page — would make `chembl_matched_by_molecule_name=True` the
