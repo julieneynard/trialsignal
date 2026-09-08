@@ -14,6 +14,7 @@ from trialsignal.features.labels import (
     TrialOutcome,
     build_trial_outcome_label,
     classify_stop_reason,
+    resolve_trial_label,
 )
 
 
@@ -100,3 +101,56 @@ def test_withdrawn_for_enrollment_is_excluded() -> None:
 )
 def test_in_progress_trials_are_excluded(status: TrialStatus) -> None:
     assert build_trial_outcome_label(_trial(status)) == TrialOutcome.EXCLUDED
+
+
+def _trial_with_pvalue(
+    status: TrialStatus, pvalue: float | None, why_stopped: str | None = None
+) -> TrialRecord:
+    return _trial(status, why_stopped).model_copy(update={"primary_pvalue": pvalue})
+
+
+def test_resolve_prefers_significant_result_over_completed_status() -> None:
+    trial = _trial_with_pvalue(TrialStatus.COMPLETED, 0.001)
+    label, is_results_based = resolve_trial_label(trial)
+    assert label == TrialOutcome.SUCCESS
+    assert is_results_based is True
+
+
+def test_resolve_overrides_completed_success_when_result_not_significant() -> None:
+    """The core fix: a COMPLETED trial (proxy says success) whose real
+    primary-endpoint p-value failed to reach significance must be labeled
+    FAILURE, not SUCCESS — this is the exact disagreement pattern
+    validate_labels found in the real dataset."""
+    trial = _trial_with_pvalue(TrialStatus.COMPLETED, 0.42)
+    label, is_results_based = resolve_trial_label(trial)
+    assert label == TrialOutcome.FAILURE
+    assert is_results_based is True
+
+
+def test_resolve_rescues_trial_the_proxy_would_have_excluded() -> None:
+    """A trial terminated for an ambiguous/administrative reason would be
+    EXCLUDED by build_trial_outcome_label alone — but if it posted a real,
+    significant primary-endpoint result, that's genuine signal and must not
+    be thrown away just because the trial's administrative status is messy."""
+    trial = _trial_with_pvalue(
+        TrialStatus.TERMINATED, 0.01, why_stopped="Terminated for business reasons"
+    )
+    assert build_trial_outcome_label(trial) == TrialOutcome.EXCLUDED  # proxy alone drops it
+
+    label, is_results_based = resolve_trial_label(trial)
+    assert label == TrialOutcome.SUCCESS
+    assert is_results_based is True
+
+
+def test_resolve_falls_back_to_proxy_when_no_pvalue() -> None:
+    trial = _trial_with_pvalue(TrialStatus.COMPLETED, None)
+    label, is_results_based = resolve_trial_label(trial)
+    assert label == TrialOutcome.SUCCESS
+    assert is_results_based is False
+
+
+def test_resolve_falls_back_to_proxy_exclusion_when_no_pvalue() -> None:
+    trial = _trial_with_pvalue(TrialStatus.RECRUITING, None)
+    label, is_results_based = resolve_trial_label(trial)
+    assert label == TrialOutcome.EXCLUDED
+    assert is_results_based is False

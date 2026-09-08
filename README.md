@@ -69,7 +69,7 @@ genuinely next, not yet built.
 | Model training (temporal + CV split, LightGBM, SHAP) | ✅ Implemented, tested, trained on real data — **read the caveat below** |
 | FastAPI `/score` endpoint (live scoring) | ✅ Implemented, tested, verified against live Open Targets + ChEMBL for all 7 curated hypotheses |
 | Streamlit demo | ✅ Implemented — thin client over `/score`, renders risk score + SHAP + warnings |
-| Results-based label validation (`trialsignal validate-labels`) | ✅ Implemented, tested, run on real data — confirms the status-based label's known weak point empirically (see below) |
+| Results-based label validation & correction (`trialsignal validate-labels`, `labels.resolve_trial_label`) | ✅ Implemented, tested, run on real data — found a real label-quality problem, then fixed it (see below) |
 
 All three source clients are verified against their live APIs, not just
 fixtures — see the module docstrings in `clinicaltrials.py`, `open_targets.py`,
@@ -88,37 +88,33 @@ on a transient upstream 5xx, fixed by capping pagination depth and adding a
 clean 502 for genuine upstream failures (see `serving/api.py`'s module
 docstring and `docs/LIMITATIONS.md` item 8).
 
-**On the trained model — read this before looking at the AUC.** v1 trained
-on 2 hypotheses and reported ROC-AUC ≈ 0.92 — a confounded number, not a
-working model (the model could score well just by learning "which of the 2
-drugs is this," see the git history and old MODEL_CARD.md revisions for the
-full story). **`CURATED_HYPOTHESES` has since been expanded to 7**,
-deliberately diverse in mechanism (a kinase inhibitor set, a monoclonal
-antibody, a PARP inhibitor, a PD-1 checkpoint inhibitor) across 6 diseases,
-specifically to remove that shortcut. Result: 405 labeled rows, failures
-spread across 5 of 7 hypotheses, and — for the first time — a temporal
-train/test split that actually works (361 train / 44 test, both classes on
-both sides). The honest temporal ROC-AUC is **≈0.49–0.53, chance level**.
-That's not a regression, it's the real finding: once the confound is gone,
-this feature set doesn't yet predict trial risk better than chance on a
-genuine future-trial holdout. Full reasoning, the CV-vs-temporal comparison
-that demonstrates *why* temporal splitting matters, and what would plausibly
-close the gap: [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) and
-[`docs/METHODS.md`](docs/METHODS.md).
+**On the trained model — read this before looking at the AUC.** Three
+versions, each shipped only after being measured against real data:
 
-**On the label itself — `trialsignal validate-labels` now measures its real
-error rate.** The registry-status label (`COMPLETED` → success) was always
-documented as a proxy, not a direct measurement (LIMITATIONS.md item 1).
-That's no longer a hypothetical caveat: re-fetching each trained trial's
-actual primary-endpoint statistical result and comparing it against the
-label gives **65.8% agreement** on the 38/405 rows (~9%) where a real
-result is posted and parseable — and every disagreement runs the same
-direction, a `success`-labeled trial whose primary endpoint didn't reach
-statistical significance. Coverage is too sparse (~9%) to use as the
-primary label source, but the number itself is the headline finding: **the
-current label is very likely optimistic for roughly a third of the "success"
-rows it can be checked against.** See `docs/LIMITATIONS.md` item 1 and
-`docs/METHODS.md`'s label-construction section for the full breakdown.
+- **v1** (2 hypotheses): ROC-AUC ≈ 0.92 — confounded. With only EGFR and
+  ABL1, the model could win just by learning "which of the 2 drugs is
+  this" (`ot_tractable_antibody` was literally 0/1 collinear with
+  hypothesis identity). Not a working model.
+- **v2** (7 hypotheses, chosen for mechanistic diversity — a monoclonal
+  antibody, a PARP inhibitor, a PD-1 checkpoint inhibitor, across 6
+  diseases): confound fixed, temporal ROC-AUC ≈ 0.5 — chance level. Honest,
+  but revealed a second problem underneath the first: the registry-status
+  label itself.
+- **v3** (same 7 hypotheses, `resolve_trial_label` substituting each
+  trial's real primary-endpoint result for the registry-status proxy
+  wherever CT.gov posted one — ~14% of trials): dataset grew from 405 to
+  **464 rows** (27 → **54 failures**; ABL1 alone went from 0 failures to 6
+  once real results were consulted — "imatinib never fails" was a labeling
+  artifact). Temporal ROC-AUC: **≈0.68 (LightGBM)** — a real, above-chance
+  result, with the CV-vs-temporal gap that flagged v2's number as unstable
+  (≈0.2 AUC) now down to ≈0.03–0.04 on the same data.
+
+**Still not decision-grade** — 48 rows in the temporal test set, and ~86%
+of the dataset is still registry-status-labeled, not results-based — but
+0.68 is a real signal, reproducibly measured two independent ways. Full
+numbers, the per-hypothesis breakdown, and the complete v1→v2→v3 reasoning:
+[`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) and
+[`docs/METHODS.md`](docs/METHODS.md).
 
 ## Quickstart
 
@@ -191,18 +187,17 @@ What would actually move the evaluation numbers, roughly in priority order
 
 1. ~~Expand `CURATED_HYPOTHESES` beyond 2.~~ **Done** — now 7, chosen for
    mechanistic diversity. Fixed the hypothesis-identity confound (temporal
-   split now works at all); did *not* fix predictive accuracy (temporal
-   ROC-AUC ≈0.5) — see LIMITATIONS.md item 4a, that's the current bottleneck.
-2. ~~Parse CT.gov's trial *results* section~~ **Half done.** `primary_pvalue`
-   extraction and `trialsignal validate-labels` exist and confirmed the
-   proxy label is optimistic on ~1/3 of checkable rows (LIMITATIONS.md item
-   1) — but coverage (~9%) is still too sparse to use as the actual training
-   label. What's left: either (a) find a second, more broadly-covered
-   results-derived signal (e.g. `hasResults` plus arm-level effect direction
-   without requiring a formal p-value, ~50% coverage vs ~9%), or (b) accept
-   the sparsity and use `primary_pvalue` only to filter/reweight rows in
-   training rather than relabel them. Still the most likely lever on the
-   near-chance accuracy (LIMITATIONS.md item 4a).
+   split now works at all); on its own did *not* fix predictive accuracy
+   (temporal ROC-AUC stayed ≈0.5) — that took item 2 below as well.
+2. ~~Parse CT.gov's trial *results* section~~ **Done.** `resolve_trial_label`
+   substitutes the real primary-endpoint result for the registry-status
+   proxy wherever available (~14% of trials) and rescues trials the proxy
+   alone excluded. Combined with item 1: temporal ROC-AUC ≈0.5 → **≈0.68**.
+   What's left: coverage is still ~14% — finding a second, more broadly
+   covered results-derived signal (e.g. `hasResults` plus arm-level effect
+   direction without requiring a formal p-value, ~50% coverage vs ~14%)
+   is now the most likely lever on the next accuracy gain
+   (`docs/LIMITATIONS.md` item 4a).
 3. **Molecule-name-first ChEMBL queries** (search the compound, then pull
    its activities directly) instead of filtering a large target-level
    activity page — would make `chembl_matched_by_molecule_name=True` the

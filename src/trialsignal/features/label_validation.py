@@ -1,14 +1,18 @@
-"""Cross-checks the registry-status label (labels.py) against the
-results-section primary-endpoint p-value (clinicaltrials.py), where both
-are available.
+"""Cross-checks a label against the results-section primary-endpoint
+p-value (clinicaltrials.py), where both are available.
 
-This is deliberately a validation tool, not a replacement label pipeline —
-see clinicaltrials.py's module docstring for why: a usable primary p-value
-exists for only ~5-10% of trials, far too sparse to train on directly. What
-it can do is answer a real question about the *existing* status-based
-label's quality: when we can independently check (via a real statistical
-result) whether a trial actually met its primary endpoint, does our proxy
-label (COMPLETED -> success) agree?
+This is the tool that found the finding documented in docs/LIMITATIONS.md
+item 1: run against the registry-status proxy label
+(`labels.build_trial_outcome_label`) on the full dataset, it showed only
+65.8% agreement on the 38/405 rows with a real result to check against, all
+disagreements in the same direction. `labels.resolve_trial_label` now acts
+on that finding directly — the feature pipeline (`build_features.py`)
+prefers the real result over the proxy whenever one exists, so a freshly
+built feature table's `label` column is already the corrected value for
+those rows. This tool remains useful for auditing any label source
+(including re-verifying the fix, or checking an older/external dataset)
+against ground truth, independent of whichever labeling function produced
+it — it takes plain label strings, not a specific label function's output.
 """
 
 from __future__ import annotations
@@ -16,8 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from trialsignal.data.schemas import TrialRecord
-
-SIGNIFICANCE_THRESHOLD = 0.05
+from trialsignal.features.labels import RESULTS_SIGNIFICANCE_THRESHOLD as SIGNIFICANCE_THRESHOLD
 
 
 @dataclass

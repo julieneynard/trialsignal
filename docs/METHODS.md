@@ -49,20 +49,30 @@ not mislabeled as a failure. The stop-reason classifier and its test suite
 **How good is that proxy, really?** `clinicaltrials.py` also extracts each
 trial's real primary-endpoint p-value from CT.gov's results section, when
 one is posted and structured enough to parse (`TrialRecord.primary_pvalue`)
-— see its module docstring for exactly how sparse that is (~9% of trials in
-this dataset). `trialsignal validate-labels`
+— see its module docstring for exactly how sparse that is (~5-10% in the
+initial exploratory sample; ~14% — 65/464 — in the current full dataset,
+see below). `trialsignal validate-labels`
 ([`label_validation.py`](../src/trialsignal/features/label_validation.py))
 cross-checks the registry-status label against that independent signal
-wherever both exist. Run on the full dataset: 65.8% agreement on the 38
-checkable rows, with every disagreement in the same direction — a
+wherever both exist. Run on the pre-fix dataset (405 rows): 65.8% agreement
+on the 38 checkable rows, with every disagreement in the same direction — a
 `COMPLETED` trial (labeled `success`) whose primary endpoint did not reach
 significance. That's an empirical measurement of the proxy's real error
 rate, not a caveat left as a guess — see `docs/LIMITATIONS.md` item 1 for
-the full numbers. This tool is a validation check, not a label source: 9%
-coverage is far too sparse to train on directly (see METHODS.md above on
-why the entity-resolution/coverage tradeoffs matter), so it does not change
-which trials get a label today — it changes how much to trust the ones
-that do.
+the full numbers.
+
+**That finding is now acted on, not just measured.**
+`labels.resolve_trial_label` — what the feature pipeline actually calls —
+prefers the real primary-endpoint result over the registry-status proxy
+whenever one exists (`TrialFeatureRow.label_source` records which, per
+row), including for trials the proxy alone would have excluded entirely.
+Coverage is still ~14% (too sparse to be the *only* label source — most
+rows still rely on the proxy), but for that ~14% the label is now ground
+truth, not an approximation. `validate-labels` remains in the repo as a
+general auditing tool — it's what found this problem, and re-running it
+after the fix reports 100% agreement by construction (the label already
+came from the same p-value it's checking against), confirming the fix
+applied correctly rather than silently leaving the old values in place.
 
 ## Modeling
 
@@ -139,5 +149,28 @@ now spread across 5 of 7 hypotheses. Two things changed as a direct result:
    why temporal splitting is the correct methodology and CV is a fallback,
    not a matter of preference.
 
-Full numbers, the per-hypothesis breakdown, and what would plausibly move
-the near-chance result: `docs/MODEL_CARD.md`.
+**v3 (same 7 hypotheses, results-validated labels, current).**
+`labels.resolve_trial_label` now prefers each trial's own primary-endpoint
+p-value over the registry-status proxy wherever one is posted and
+parseable (~14% of trials) — both correcting proxy-mislabeled rows and
+rescuing trials the proxy alone would have excluded. Dataset grew from 405
+to **464 rows, 27 to 54 failures** — ABL1 alone went from 42 rows/0
+failures to 80 rows/6 failures, meaning v2's "imatinib never fails"
+pattern was a labeling artifact of the proxy, not a real property of the
+drug. Retraining on this dataset (same 7 hypotheses, same features, same
+temporal cutoff): **ROC-AUC ≈ 0.68 (LightGBM, temporal holdout)** — up
+from v2's ≈0.53, and for the first time LightGBM clearly beats the
+logistic-regression baseline (0.68 vs 0.57), suggesting there's now real
+non-linear structure to find, not just noise both models fit equally
+badly. The CV-vs-temporal gap that flagged v2's numbers as leaky (~0.2
+AUC) has also shrunk to ~0.03-0.04 here — two independently-computed
+numbers converging is evidence this result is real, not an artifact of
+either evaluation choice.
+
+**The chain matters as much as the destination.** v1's 0.92 was wrong for
+one reason (hypothesis confound); v2's fix revealed a second, unrelated
+problem (label noise) that had been masked by the first; only fixing both,
+in sequence, with a measurement after each step, produced a number worth
+trusting. Full numbers, the per-hypothesis breakdown including how many
+rows per hypothesis are results-based vs. proxy-based, and what's still
+open: `docs/MODEL_CARD.md`.

@@ -37,7 +37,7 @@ from trialsignal.data.schemas import (
     TrialRecord,
 )
 from trialsignal.features.hypothesis import Hypothesis
-from trialsignal.features.labels import TrialOutcome, build_trial_outcome_label
+from trialsignal.features.labels import TrialOutcome, resolve_trial_label
 
 _DISEASE_MATCH_THRESHOLD = 0.85
 
@@ -86,6 +86,7 @@ def _build_row(
     *,
     nct_id: str,
     label: str,
+    label_source: str,
     hypothesis: Hypothesis,
     target_disease: TargetDiseaseAssociation,
     drug_name: str,
@@ -100,6 +101,7 @@ def _build_row(
     return TrialFeatureRow(
         nct_id=nct_id,
         label=label,
+        label_source=label_source,
         gene_symbol=hypothesis.gene_symbol,
         disease_name=target_disease.disease_name,
         drug_name=drug_name,
@@ -126,9 +128,10 @@ def build_feature_table(
 ) -> list[TrialFeatureRow]:
     """Build one TrialFeatureRow per trial that (a) tests a drug matching
     `hypothesis.drug_aliases`, (b) has a resolvable success/failure label
-    (see labels.py — in-progress and ambiguously-stopped trials are
-    excluded), and (c) has a condition confidently resolvable to one of
-    `target_diseases`' disease entries.
+    (see labels.py's `resolve_trial_label` — prefers the trial's own
+    primary-endpoint result over the registry-status proxy, and only
+    excludes a trial when neither is available), and (c) has a condition
+    confidently resolvable to one of `target_diseases`' disease entries.
 
     A trial failing any of those three checks is silently dropped, by
     design — this is the leakage/mismatch guard described in the module
@@ -144,7 +147,7 @@ def build_feature_table(
         if not _trial_matches_hypothesis(trial, hypothesis):
             continue
 
-        label = build_trial_outcome_label(trial)
+        label, is_results_based = resolve_trial_label(trial)
         if label == TrialOutcome.EXCLUDED:
             continue
 
@@ -162,6 +165,7 @@ def build_feature_table(
             _build_row(
                 nct_id=trial.nct_id,
                 label=label.value,
+                label_source="results" if is_results_based else "registry_status",
                 hypothesis=hypothesis,
                 target_disease=target_disease,
                 drug_name=matched_drug,
@@ -208,6 +212,7 @@ def build_live_feature_vector(
     return _build_row(
         nct_id="(live scoring request)",
         label=TrialOutcome.EXCLUDED.value,
+        label_source="not_applicable",  # no real trial/outcome behind a live scoring request
         hypothesis=hypothesis,
         target_disease=target_disease,
         drug_name=hypothesis.drug_aliases[0],

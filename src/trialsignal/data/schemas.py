@@ -124,6 +124,12 @@ class TrialFeatureRow(BaseModel):
     nct_id: str
     # TrialOutcome value; success/failure rows only — excluded trials never reach this table.
     label: str
+    # "results" when `label` came from the trial's own primary-endpoint
+    # p-value (labels.resolve_trial_label), "registry_status" when it fell
+    # back to the COMPLETED/TERMINATED proxy — see labels.py's module
+    # docstring. Not hidden in an aggregate: a reviewer should be able to
+    # tell, per row, which ~9% are graded on real statistics.
+    label_source: str
     gene_symbol: str
     disease_name: str
     drug_name: str

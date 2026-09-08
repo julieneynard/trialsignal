@@ -2,23 +2,27 @@
 
 Stated plainly, up front, rather than discovered by a reviewer.
 
-1. **"Completed" is a proxy for success, not proof of it — now confirmed
-   empirically, not just argued.** `trialsignal validate-labels`
-   (`features/label_validation.py`) re-fetches each trained trial's real
-   results section and compares its primary-endpoint p-value against the
-   registry-status label. Run on the full 405-row dataset: only 38 rows
-   (~9%) had a usable p-value (see `clinicaltrials.py`'s module docstring
-   for why coverage is this sparse), but among those, agreement was only
-   **65.8%** — and all 13 disagreements ran the same direction: a trial
-   labeled `success` (it was `COMPLETED`, not terminated) whose primary
-   endpoint did **not** reach statistical significance (p-values from 0.08
-   to 0.98). Zero disagreements ran the other way (`failure`-labeled trial
-   with a significant result) — consistent with `labels.py`'s stop-reason
-   classifier already being conservative about assigning `FAILURE`. Treat
-   `risk_score` as "probability the trial wasn't abandoned for cause," not
-   "probability the drug worked" — this is no longer a hypothetical
-   caveat, roughly a third of checkable "success" labels don't hold up
-   against the trial's own reported statistics.
+1. **["Completed" is a proxy, not proof — measured, then fixed for the rows
+   it could be fixed for.]** `trialsignal validate-labels`
+   (`features/label_validation.py`) found this empirically before it was
+   fixed: run against the pre-fix 405-row dataset, only 38 rows (~9%) had a
+   usable primary-endpoint p-value, and among those, agreement with the
+   registry-status label was only **65.8%** — all 13 disagreements the same
+   direction, a trial labeled `success` (it was `COMPLETED`, not
+   terminated) whose primary endpoint did **not** reach statistical
+   significance (p-values from 0.08 to 0.98). `labels.resolve_trial_label`
+   now acts on that finding: it substitutes the real result for the proxy
+   label wherever one exists, and rescues trials the proxy alone would
+   have excluded. Net effect on the full 7-hypothesis dataset: 405 → **464**
+   rows, 27 → **54** failures — ABL1 alone went from 42 rows/0 failures to
+   80 rows/6 failures, meaning "imatinib never fails" was a labeling
+   artifact, not a real property of the drug (see `docs/MODEL_CARD.md`).
+   **This remains a real, live limitation for the ~86% of rows still
+   proxy-labeled** — coverage of the real signal (~14% of trials) is the
+   bottleneck now, not the substitution logic. Treat `risk_score` as
+   "probability grounded in a real result where `label_source="results"`,
+   probability the trial wasn't abandoned for cause otherwise" — the two
+   are not the same claim, and the CSV output distinguishes them per row.
 
 2. **Stop-reason classification is keyword-based, not a trained classifier.**
    `classify_stop_reason` (see `labels.py`) uses regex pattern matching over
@@ -40,31 +44,32 @@ Stated plainly, up front, rather than discovered by a reviewer.
    CML query. The pattern (a small, curated, documented synonym table
    rather than a general fuzzy-matching threshold change) generalizes; the
    next hypothesis added to `CURATED_HYPOTHESES` should expect to need its
-   own naming check against the live API before trusting it works. Measured on the
-   real dataset the current model was trained on: pulling all
+   own naming check against the live API before trusting it works. Measured
+   on the real dataset the current model was trained on (post item-1 fix —
+   numbers below include results-based rescues): pulling all
    ClinicalTrials.gov trials for "non-small cell lung cancer" (3,977 trials)
-   and "chronic myeloid leukemia" (1,796 trials) yielded only 18
-   osimertinib/NSCLC rows and 42 imatinib/CML rows (60 total) after
-   intervention matching, label resolution, and disease matching. Most
-   pulled trials test a different drug entirely (expected — these are broad
-   disease-level pulls), and a meaningful share of the remainder are still
+   and "chronic myeloid leukemia" (1,796 trials) yielded 21
+   osimertinib/NSCLC rows and 80 imatinib/CML rows after intervention
+   matching, label resolution, and disease matching. Most pulled trials
+   test a different drug entirely (expected — these are broad disease-level
+   pulls), and a meaningful share of the remainder are still
    RECRUITING/ACTIVE_NOT_RECRUITING (expected for osimertinib specifically,
    which is still mid-lifecycle) rather than resolution failures. The
    `build-features` CLI reports this ratio (`N/M pulled trials matched`)
    every run rather than hiding it. Separately, ChEMBL bioactivity matching
    by molecule `pref_name` found zero marketed-drug-name matches in the
    pulled activity pages for either target — `chembl_matched_by_molecule_name`
-   is `False` for every row in the trained dataset, meaning ChEMBL features
-   fell back to target-level aggregates throughout. A molecule-name-first
-   ChEMBL query (search by compound name, then pull its activities directly,
-   rather than filtering a large target-level activity page) is the natural
-   fix and is on the roadmap, not yet built.
+   is `False` for every EGFR/ABL1 row, meaning ChEMBL features fell back to
+   target-level aggregates throughout. A molecule-name-first ChEMBL query
+   (search by compound name, then pull its activities directly, rather than
+   filtering a large target-level activity page) is the natural fix and is
+   on the roadmap, not yet built.
 
    The 5 hypotheses added for v2 show the same funnel pattern, at varying
    yield: BRAF/vemurafenib/melanoma 26/3,728, ERBB2/trastuzumab/breast
-   cancer 100/3,988, KDR/sunitinib/renal cell carcinoma 87/2,710,
-   PARP1/olaparib/ovarian cancer 24/3,990, PDCD1/pembrolizumab/melanoma
-   108/3,728 — consistent with this being a structural property of broad
+   cancer 102/3,988, KDR/sunitinib/renal cell carcinoma 89/2,710,
+   PARP1/olaparib/ovarian cancer 32/3,990, PDCD1/pembrolizumab/melanoma
+   114/3,728 — consistent with this being a structural property of broad
    disease-level pulls, not specific to the original two. PDCD1's ChEMBL
    pull returned only 3 bioactivity records total (vs. hundreds for every
    small-molecule target) — expected, not a bug: ChEMBL is overwhelmingly
@@ -85,24 +90,28 @@ Stated plainly, up front, rather than discovered by a reviewer.
    regression. Full reasoning: `docs/METHODS.md` ("What the real numbers
    actually mean") and `docs/MODEL_CARD.md`. **This is still the most
    important thing to understand about this model**: the confound is fixed,
-   but the near-chance result means the current public feature set doesn't
-   yet predict trial risk well — that's a different, now-honest limitation
-   (see #4a below), not the one described here.
+   and (see #4a below, updated after limitation #1's fix) the label-quality
+   fix subsequently moved accuracy from near-chance to a real, if modest,
+   above-chance result — but 0.68 ROC-AUC is still far from a decision-grade
+   number, so read #4a's current text, not the "near-chance" framing this
+   note originally shipped with.
 
-4a. **Even with the confound fixed, near-chance accuracy means the current
-   features likely don't capture what actually drives trial outcomes.**
-   405 rows for 11 features, evaluated on a genuine 44-row temporal holdout,
-   is still a small, noisy estimate — but the CV-vs-temporal gap (≈0.66-0.72
-   vs ≈0.49-0.53 ROC-AUC on identical data, see METHODS.md) is concrete
-   evidence the temporal number reflects real difficulty, not just sample
-   noise pulling toward 0.5. The features available (target-disease
-   association scores, coarse bioactivity aggregates, trial phase/enrollment)
-   are target/chemistry-level and never see the things that plausibly drive
-   most real trial outcomes: protocol design quality, patient selection
-   criteria, competitive landscape, or the actual efficacy/safety data
-   itself (see limitation #1 — the label is a registry-status proxy, not a
-   results-based outcome). Closing this gap is a data problem before it's a
-   modeling problem.
+4a. **[Updated after limitation #1's fix — no longer near-chance, but still
+   far from decision-grade.]** With the hypothesis-identity confound fixed
+   (limitation 4) and results-validated labels applied wherever available
+   (limitation 1), temporal ROC-AUC moved from ≈0.5 to **≈0.68** (LightGBM,
+   464 rows, 48-row temporal holdout) — a real, above-chance, reproducible
+   result: the CV-vs-temporal gap that flagged the earlier near-chance
+   number as unstable (≈0.2 AUC) has shrunk to ≈0.03-0.04 here, meaning two
+   independent evaluation methods now agree. It is still a small dataset
+   for 11 features (48 held-out rows carries real sampling uncertainty —
+   treat 0.68 as "meaningfully above chance," not a precise estimate), and
+   the feature set is still target/chemistry-level, missing protocol
+   design quality, patient selection criteria, and competitive landscape —
+   real drivers of trial outcomes this pipeline has no source for. ~86% of
+   rows are still registry-status-labeled, not results-based (limitation
+   1) — extending real-result coverage further is the most likely lever
+   left on this number.
 
 5. **[Fixed in v2] The v1 dataset's failures were clustered in time (all 3
    postdated 2021-06-29), which made a temporal train/test split
@@ -111,8 +120,9 @@ Stated plainly, up front, rather than discovered by a reviewer.
    This turned out to be a symptom of limitation 4 (too few, too similar
    hypotheses), not an independent problem: with 7 hypotheses and failures
    spread more broadly across drugs and time, a temporal split (cutoff
-   2020-01-01) now produces 361 train / 44 test rows with both classes
-   present in both. `cross_validate_lightgbm` / `--eval-mode cv` remains in
+   2020-01-01) now produces 416 train / 48 test rows (post limitation-1 fix;
+   361/44 before it) with both classes present in both.
+   `cross_validate_lightgbm` / `--eval-mode cv` remains in
    the codebase as the documented fallback for whenever a future dataset
    subset doesn't support a temporal split — this fix doesn't make that
    fallback obsolete, just unnecessary for the current full dataset.
