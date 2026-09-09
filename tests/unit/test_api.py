@@ -6,6 +6,7 @@ import respx
 from fastapi.testclient import TestClient
 
 from trialsignal.data.chembl import BASE_URL as CHEMBL_URL
+from trialsignal.data.chembl import MOLECULE_URL
 from trialsignal.data.open_targets import BASE_URL as OPEN_TARGETS_URL
 from trialsignal.serving.api import app
 
@@ -20,6 +21,10 @@ def _mock_upstream_apis() -> None:
     respx.post(OPEN_TARGETS_URL).mock(
         return_value=httpx.Response(200, json=_load("opentargets_egfr_response.json"))
     )
+    # Empty molecule-synonym match: exercises the real molecule-first lookup
+    # path (_get_activities now calls this before the target-level pull) but
+    # keeps this fixture's "falls back to target-level data" scenario intact.
+    respx.get(MOLECULE_URL).mock(return_value=httpx.Response(200, json={"molecules": []}))
     # chembl_last_page.json has page_meta.next=null — a single-page response,
     # so pagination in the client stops after one call instead of looping
     # up to --max-pages against a mock that would otherwise "next" forever.
@@ -107,6 +112,9 @@ def test_score_caches_upstream_calls_across_requests(trained_model_path, monkeyp
     ot_route = respx.post(OPEN_TARGETS_URL).mock(
         return_value=httpx.Response(200, json=_load("opentargets_egfr_response.json"))
     )
+    molecule_route = respx.get(MOLECULE_URL).mock(
+        return_value=httpx.Response(200, json={"molecules": []})
+    )
     chembl_route = respx.get(CHEMBL_URL).mock(
         return_value=httpx.Response(200, json=_load("chembl_last_page.json"))
     )
@@ -118,8 +126,12 @@ def test_score_caches_upstream_calls_across_requests(trained_model_path, monkeyp
 
     assert first.status_code == 200
     assert second.status_code == 200
-    # Second request must reuse the in-process cache, not re-fetch.
+    # Second request must reuse the in-process cache, not re-fetch. EGFR has
+    # 3 drug_aliases, so the first request alone makes 3 molecule-search
+    # calls (one per alias) — what matters is that the *second* request adds
+    # none of them, not that there's only one.
     assert ot_route.call_count == 1
+    assert molecule_route.call_count == 3
     assert chembl_route.call_count == 1
 
 
@@ -137,6 +149,7 @@ def test_score_returns_502_when_upstream_is_persistently_down(
     respx.post(OPEN_TARGETS_URL).mock(
         return_value=httpx.Response(200, json=_load("opentargets_egfr_response.json"))
     )
+    respx.get(MOLECULE_URL).mock(return_value=httpx.Response(200, json={"molecules": []}))
     respx.get(CHEMBL_URL).mock(return_value=httpx.Response(500))
 
     with TestClient(app) as client:

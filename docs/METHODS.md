@@ -204,14 +204,72 @@ approval with a genuinely small trial history; ALK at n=7) and shouldn't
 be read as validated on their own; they still contribute real rows to the
 pooled estimate.
 
+**v6 (same 17 hypotheses, ChEMBL bioactivity matched molecule-name-first).**
+Every prior version's ChEMBL features came from a target-level activity
+pull: fetch the target's full bioactivity list (often 10,000s of rows,
+paginated), then filter the first ~200 fetched rows by `pref_name` for the
+hypothesis's drug. Checked directly against the live ChEMBL API before
+changing anything (same discipline as every other fix in this project):
+that filter found **zero** of osimertinib's 485 real EGFR bioactivity
+records — they're simply not in the first ~200 rows of EGFR's 26,000+-row
+unfiltered activity list. The fix: resolve each hypothesis's drug name to
+a ChEMBL molecule ID via synonym search (`molecule.json`, which covers
+both generic and brand names — "osimertinib" and "Tagrisso" both resolve
+to `CHEMBL3353410`), then query `activity.json` filtered by *both*
+`molecule_chembl_id` and `target_chembl_id` — the exact compound-target
+pair, not a truncated slice of everything. Applied to both the offline
+`build-features` pipeline and the live `/score` endpoint (`serving/api.py`
+now does the same molecule-first resolution before falling back to
+target-level data). Rebuilt all 17 hypotheses' feature tables with this
+fix (alongside a fresh trial re-fetch, since CT.gov's live registry data
+had moved since v5's snapshot): **843 rows, 102 failures** (v5: 840, 97).
+`chembl_matched_by_molecule_name` went from ~0% to **exactly 100%** for
+all 13 small-molecule hypotheses — and stayed verified-0% for all 4
+antibody hypotheses (pembrolizumab, trastuzumab, daratumumab,
+bevacizumab), confirmed directly against ChEMBL's API to have *no*
+bioactivity record under any target or standard-type at all. That 0% isn't
+a matching failure, it's ChEMBL's actual coverage: the database is
+overwhelmingly small-molecule IC50/EC50/Ki data, and antibody mechanisms
+aren't characterized that way there.
+
+Retraining: temporal ROC-AUC **0.680 → 0.676** — essentially flat, while
+`chembl_activity_count` moved up to the model's 3rd-most-important SHAP
+feature (from 4th). This is the honest result to report, not a
+disappointment to explain away: the fix demonstrably changed what data 13
+of 17 hypotheses' rows carry (verified via the 100%/0% split and the
+osimertinib example above), and the model does lean on that feature more —
+it just didn't move the aggregate temporal-holdout metric at this dataset
+size. A data-quality fix succeeding technically without moving a headline
+number is a real, reportable outcome, not a null result to omit.
+
+One number from this round of retraining does deserve a flag rather than a
+shrug: the CV-temporal gap widened to **−0.076** (v5: −0.035; v3/v4 were
++0.031/+0.028) — the largest since the v2 confound was fixed, though still
+far below v2's ≈0.2 leaky, single-direction gap. Because v6 changed the
+underlying ChEMBL feature data rather than adding hypotheses the way
+v3→v4→v5 did, this isn't a strictly like-for-like comparison to the prior
+three gaps, and the baseline logreg model's own CV score barely moved
+(0.628 → 0.585) even though its temporal score dropped more (0.623 →
+0.545) — consistent with most of the movement being concentrated in this
+particular 90-row temporal test set rather than a systemic problem. Still,
+"probably sampling noise, but the widest instance seen since v2" is the
+honest read, not "confirmed fine" — worth re-checking again as more
+hypotheses or more results-based labels are added.
+
 **The chain matters as much as the destination.** v1's 0.92 was wrong for
 one reason (hypothesis confound); v2's fix revealed a second, unrelated
 problem (label noise) that had been masked by the first; v3's fix of that
 produced a real but small-sample number; v4 added more data and walked
-that number back down; v5 added more data again and it moved back up. Four
-re-measurements, one consistent conclusion each time: modestly
-above-chance, not decision-grade, sampling noise of about ±0.05 at this
-dataset size. Reporting any single version's number as "the" result and
-stopping there would have missed that pattern. Full numbers, the
-per-hypothesis breakdown including how many rows per hypothesis are
-results-based vs. proxy-based, and what's still open: `docs/MODEL_CARD.md`.
+that number back down; v5 added more data again and it moved back up; v6
+fixed a data-quality bug (ChEMBL matching) that changed 13 hypotheses'
+feature values without moving the headline AUC, while widening the
+CV-temporal gap enough to be worth flagging rather than a routine
+re-measurement. Five re-measurements plus one data-quality fix, the same
+underlying conclusion each time: modestly above-chance, not
+decision-grade, with sampling noise now looking closer to ±0.05–0.08 than
+the tighter ±0.03 band earlier versions suggested. Reporting any single
+version's number as "the" result and stopping there would have missed
+that pattern. Full numbers, the per-hypothesis breakdown including how
+many rows per hypothesis are results-based vs. proxy-based and
+molecule-matched vs. target-level, and what's still open:
+`docs/MODEL_CARD.md`.

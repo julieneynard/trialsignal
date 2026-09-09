@@ -1,0 +1,17 @@
+{
+  "molecules": [
+    {
+      "molecule_chembl_id": "CHEMBL3353410",
+      "pref_name": "OSIMERTINIB",
+      "molecule_type": "Small molecule",
+      "max_phase": "4.0"
+    }
+  ],
+  "page_meta": {
+    "limit": 25,
+    "next": null,
+    "offset": 0,
+    "previous": null,
+    "total_count": 1
+  }
+}

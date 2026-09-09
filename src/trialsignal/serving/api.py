@@ -36,6 +36,17 @@ Design choices worth flagging:
   miss is still slow-ish (a few seconds) but not tens of seconds, and a
   genuine upstream outage now surfaces as a clean 502, not an unhandled
   500 (see `_fetch_upstream`).
+
+- ChEMBL activities are fetched molecule-first, not just target-first:
+  `_get_activities` resolves each of a hypothesis's `drug_aliases` to a
+  ChEMBL molecule ID (via `find_molecule_ids_by_synonym`, which covers
+  both generic and brand names) and fetches that specific compound-target
+  pair's activities before falling back to the generic target-level pull.
+  Verified this matters, not just in theory: a target-level pull alone
+  found zero of osimertinib's 485 real EGFR activities (they're not in the
+  first ~200 rows of EGFR's 26,000+ unfiltered activity list); the
+  molecule-first query finds them directly. See chembl.py's module
+  docstring for the full reasoning.
 """
 
 from __future__ import annotations
@@ -154,9 +165,28 @@ async def _get_activities(hypothesis: Hypothesis) -> list[ChemblActivity]:
     def _fetch() -> list[ChemblActivity]:
         client = ChemblClient()
         try:
-            return list(
+            molecule_ids: set[str] = set()
+            for alias in hypothesis.drug_aliases:
+                molecule_ids.update(client.find_molecule_ids_by_synonym(alias))
+
+            molecule_activities: list[ChemblActivity] = []
+            for molecule_id in molecule_ids:
+                molecule_activities.extend(
+                    client.iter_activities_for_molecule(
+                        molecule_id,
+                        hypothesis.chembl_target_id,
+                        max_pages=_ACTIVITIES_MAX_PAGES,
+                    )
+                )
+            target_activities = list(
                 client.iter_activities(hypothesis.chembl_target_id, max_pages=_ACTIVITIES_MAX_PAGES)
             )
+            # Molecule-specific rows first: _aggregate_chembl (build_features.py)
+            # filters this combined pool by pref_name, so real drug-specific
+            # activities (present here whenever ChEMBL has any) take over from
+            # the generic target-level pool automatically — no extra logic
+            # needed to prefer one over the other.
+            return molecule_activities + target_activities
         finally:
             client.close()
 

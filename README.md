@@ -88,7 +88,7 @@ on a transient upstream 5xx, fixed by capping pagination depth and adding a
 clean 502 for genuine upstream failures (see `serving/api.py`'s module
 docstring and `docs/LIMITATIONS.md` item 8).
 
-**On the trained model — read this before looking at the AUC.** Five
+**On the trained model — read this before looking at the AUC.** Six
 versions, each shipped only after being measured against real data:
 
 - **v1** (2 hypotheses): ROC-AUC ≈ 0.92 — confounded. With only EGFR and
@@ -114,16 +114,30 @@ versions, each shipped only after being measured against real data:
   ordinary sampling noise at n≈800–900, not a returning leakage problem
   (v2's actual confound produced a ≈0.2 gap in one fixed direction, a
   categorically different signal).
+- **v6** (same 17 hypotheses, ChEMBL bioactivity matched molecule-name-first
+  instead of a target-level fallback — verified live: 485 real
+  osimertinib/EGFR bioactivity records existed but 0 were found by the old
+  target-level pull): **843 rows, 102 failures**. Temporal ROC-AUC:
+  **≈0.68 (0.676)** — essentially flat vs. v5, while `chembl_activity_count`
+  moved up to the model's 3rd-most-important SHAP feature (from 4th). The
+  fix moved `chembl_matched_by_molecule_name` from ~0% to exactly **100%**
+  for all 13 small-molecule hypotheses, and confirmed (also verified live)
+  that the 4 antibody hypotheses genuinely have **0** ChEMBL bioactivity
+  records under any target — a real property of the database, not a gap in
+  this project's matching. One number did move enough to flag rather than
+  wave off: the CV-temporal gap widened to **≈−0.076** (from v5's −0.035) —
+  still far below v2's leaky ≈0.2 gap, but the widest since the confound
+  was fixed, and reported as an open question rather than smoothed over.
 
 **Still not decision-grade**, and the headline number has now moved
-0.5 → 0.68 → 0.63 → 0.68 across four re-measurements — which is the actual
-point of publishing every version instead of only the current one: the
-honest summary is "reliably modestly above chance, ±0.05," not a single
-precise figure. ~85% of the dataset is still registry-status-labeled, not
-results-based (broadening that coverage was investigated and explicitly
+0.5 → 0.68 → 0.63 → 0.68 → 0.68 across five re-measurements — which is the
+actual point of publishing every version instead of only the current one:
+the honest summary is "reliably modestly above chance, ±0.05–0.08," not a
+single precise figure. ~83% of the dataset is still registry-status-labeled,
+not results-based (broadening that coverage was investigated and explicitly
 rejected as infeasible without fabricating labels — see
 `docs/LIMITATIONS.md` item 1a). Full numbers, the per-hypothesis
-breakdown, and the complete v1→v2→v3→v4→v5 reasoning:
+breakdown, and the complete v1→v2→v3→v4→v5→v6 reasoning:
 [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) and
 [`docs/METHODS.md`](docs/METHODS.md).
 
@@ -220,10 +234,19 @@ What would actually move the evaluation numbers, roughly in priority order
    trials with no comparator to judge success against at all, not a
    labeling problem a heuristic can responsibly close (`docs/LIMITATIONS.md`
    item 1a).
-3. **Molecule-name-first ChEMBL queries** (search the compound, then pull
-   its activities directly) instead of filtering a large target-level
-   activity page — would make `chembl_matched_by_molecule_name=True` the
-   normal case instead of the exception it is today.
+3. ~~Molecule-name-first ChEMBL queries~~ **Done (v6).** Resolve the
+   compound to a ChEMBL molecule ID first (synonym search, covers generic
+   and brand names), then query the molecule-target pair's activities
+   directly, instead of filtering a large target-level activity page.
+   `chembl_matched_by_molecule_name=True` went from the exception to the
+   normal case for small-molecule hypotheses: exactly **100%** for all 13
+   of them, confirmed against the live API. The 4 antibody hypotheses
+   stayed at 0% — verified this is real ChEMBL coverage (no bioactivity
+   record exists for these drugs under any target), not a matching gap.
+   Net effect on the model: temporal ROC-AUC essentially unchanged
+   (0.680 → 0.676) while `chembl_activity_count` became a top-3 SHAP
+   feature — and the CV-temporal gap widened to ≈−0.076 (from −0.035),
+   flagged rather than glossed over (`docs/LIMITATIONS.md` item 3a).
 4. **Per-hypothesis fetch locking** in the API, so two concurrent
    cache-miss requests for the same hypothesis don't both hit the live
    APIs independently (LIMITATIONS.md item 8).

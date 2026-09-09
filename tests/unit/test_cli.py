@@ -6,6 +6,8 @@ import respx
 from typer.testing import CliRunner
 
 from trialsignal.cli import app
+from trialsignal.data.chembl import BASE_URL as CHEMBL_ACTIVITY_URL
+from trialsignal.data.chembl import MOLECULE_URL
 from trialsignal.data.clinicaltrials import BASE_URL
 from trialsignal.data.schemas import (
     ChemblActivity,
@@ -164,3 +166,59 @@ def test_validate_labels_reports_agreement_and_disagreements(tmp_path: Path) -> 
     # NCT001: p=0.30 (not significant) but labeled "success" -> disagreement.
     assert "DISAGREE NCT001" in result.output
     assert "Agreement with registry-status label: 0.0%" in result.output
+
+
+@respx.mock
+def test_fetch_molecule_activities_resolves_synonym_then_fetches(tmp_path: Path) -> None:
+    respx.get(MOLECULE_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={"molecules": [{"molecule_chembl_id": "CHEMBL3353410"}]},
+        )
+    )
+    activity_route = respx.get(CHEMBL_ACTIVITY_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "activities": [
+                    {
+                        "molecule_chembl_id": "CHEMBL3353410",
+                        "molecule_pref_name": "OSIMERTINIB",
+                        "target_chembl_id": "CHEMBL203",
+                        "standard_type": "IC50",
+                        "standard_value": "7.0",
+                        "standard_units": "nM",
+                        "pchembl_value": "8.15",
+                    }
+                ],
+                "page_meta": {"next": None},
+            },
+        )
+    )
+    output_path = tmp_path / "molecule_activities.jsonl"
+
+    result = runner.invoke(
+        app,
+        [
+            "fetch-molecule-activities",
+            "EGFR / osimertinib / NSCLC",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "wrote 1 molecule-specific bioactivity records" in result.output
+    assert output_path.exists()
+    lines = output_path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 1
+    # 3 drug_aliases for this hypothesis -> up to 3 molecule-search calls,
+    # each finding the same molecule (mocked identically) -> deduped to 1
+    # activity fetch, not 3 redundant ones.
+    assert activity_route.call_count == 1
+
+
+def test_fetch_molecule_activities_unknown_hypothesis_exits_nonzero() -> None:
+    result = runner.invoke(app, ["fetch-molecule-activities", "not a real hypothesis"])
+    assert result.exit_code == 1
+    assert "Unknown hypothesis" in result.output

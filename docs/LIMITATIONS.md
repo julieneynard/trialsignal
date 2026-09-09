@@ -111,12 +111,14 @@ Stated plainly, up front, rather than discovered by a reviewer.
    ratio (`N/M pulled trials matched`) every run rather than hiding it.
    Separately, ChEMBL bioactivity matching by molecule `pref_name` found
    zero marketed-drug-name matches in the pulled activity pages for either
-   target — `chembl_matched_by_molecule_name` is `False` for every
+   target — `chembl_matched_by_molecule_name` was `False` for every
    EGFR/ABL1 row, meaning ChEMBL features fell back to target-level
-   aggregates throughout. A molecule-name-first ChEMBL query (search by
-   compound name, then pull its activities directly, rather than filtering
-   a large target-level activity page) is the natural fix and is on the
-   roadmap, not yet built.
+   aggregates throughout. **Fixed in v6** (see item 3a below): a
+   molecule-name-first ChEMBL query, resolving the drug name to a ChEMBL
+   molecule ID first and querying `activity.json` filtered by both
+   `molecule_chembl_id` and `target_chembl_id`, now finds the exact
+   compound-target data directly instead of filtering a truncated
+   target-level pull.
 
    The 5 hypotheses added for v2 show the same funnel pattern, at varying
    yield: BRAF/vemurafenib/melanoma 26/3,728, ERBB2/trastuzumab/breast
@@ -142,6 +144,36 @@ Stated plainly, up front, rather than discovered by a reviewer.
    contrast with FGFR3 shows the funnel yield tracks real-world trial
    volume, not a fixed rate).
 
+3a. **[Fixed in v6] Molecule-name-first ChEMBL matching, and a genuine
+   database-coverage gap it revealed.** `find_molecule_ids_by_synonym`
+   (`data/chembl.py`) resolves a hypothesis's `drug_aliases` to ChEMBL
+   molecule IDs via `molecule_synonyms__molecule_synonym__iexact` search
+   (covers generic and brand names — "osimertinib" and "Tagrisso" both
+   resolve to `CHEMBL3353410`), then `iter_activities_for_molecule` queries
+   `activity.json` filtered by both `molecule_chembl_id` and
+   `target_chembl_id`. Verified against the live API before writing the
+   fix: this recovers 485 real osimertinib/EGFR bioactivity records that
+   the old target-level-pull-then-filter approach found zero of. Rebuilding
+   all 17 hypotheses' feature tables with this fix (`build_feature_table`,
+   and mirrored in the live `/score` endpoint's `_get_activities`) moved
+   `chembl_matched_by_molecule_name` from ~0% to **exactly 100%** for all
+   13 small-molecule hypotheses. It did **not** move the 4 antibody
+   hypotheses (pembrolizumab, trastuzumab, daratumumab, bevacizumab) off
+   0% — checked directly against ChEMBL's API and confirmed these 4 drugs
+   have no bioactivity record under any target or standard-type at all, in
+   or out of this project's pipeline. This is a real, structural property
+   of ChEMBL (small-molecule IC50/EC50/Ki potency data, not how antibody
+   mechanisms are characterized), not a residual matching gap — nothing
+   left to fix here for those 4 hypotheses. Net model effect: temporal
+   ROC-AUC essentially unchanged (0.680 → 0.676), but
+   `chembl_activity_count` moved to the model's 3rd-most-important SHAP
+   feature (from 4th) — the fix demonstrably changed what real data the
+   model sees without moving the headline metric, and is reported as
+   exactly that rather than reframed as a win. See `docs/METHODS.md`'s v6
+   section for the full retraining discussion, including a CV-temporal gap
+   (−0.076, vs. −0.035 in v5) that widened enough to flag rather than wave
+   off — still nowhere near v2's leaky ≈0.2 gap, but the largest since.
+
 4. **[Fixed in v2, kept here as a worked example] 60 labeled rows from 2
    hypotheses was not enough to evaluate a model on, and v1's ROC-AUC
    (~0.92) was not evidence it worked.** All 3 failure-labeled trials were
@@ -163,24 +195,30 @@ Stated plainly, up front, rather than discovered by a reviewer.
    once — read #4a's current text for the up-to-date number, not the
    "near-chance" framing this note originally shipped with.
 
-4a. **[Current as of v5 — no longer near-chance, but still far from
-   decision-grade, and the number has moved three times since this note
+4a. **[Current as of v6 — no longer near-chance, but still far from
+   decision-grade, and the number has moved four times since this note
    was first written.]** Confound fixed (limitation 4) + results-validated
    labels (limitation 1) took temporal ROC-AUC from ≈0.5 (v2) to ≈0.68 (v3,
    464 rows, 48-row test). 5 more hypotheses for disease diversity (v4, 686
    rows, 77-row test) brought it to ≈0.63 — down. 5 more again (v5, 840
-   rows, 90-row test) brought it back to **≈0.68**. Each move was checked
-   against CV before being trusted: the CV-temporal gap has stayed in the
-   ≈0.03 band across v3/v4/v5 (0.031, 0.028, 0.035 — v5's flipped in
-   direction, temporal now scoring higher than CV, but the *magnitude*
-   stayed consistent), unlike v2's ≈0.2 gap in one fixed direction, which
-   is what real leakage looked like when this project had it. Read the
-   ±0.05 wandering as normal sampling variation at n≈800–900, not as
-   evidence about whether any particular batch of hypotheses helped or
-   hurt. It is still a modest dataset for 11 features, and the feature set
-   is still target/chemistry-level, missing protocol design quality,
+   rows, 90-row test) brought it back to ≈0.68. Fixing ChEMBL molecule-name
+   matching (v6, limitation 3a; same 17 hypotheses, 843 rows, 90-row test)
+   left it essentially flat at **≈0.68 (0.676)** — a real fix that changed
+   real feature data for 13/17 hypotheses without moving this metric,
+   reported as exactly that. Each move was checked against CV before being
+   trusted: the CV-temporal gap stayed in the ≈0.03 band across v3/v4/v5
+   (0.031, 0.028, 0.035 — v5's flipped in direction, temporal now scoring
+   higher than CV, but the *magnitude* stayed consistent), unlike v2's
+   ≈0.2 gap in one fixed direction, which is what real leakage looked like
+   when this project had it. **v6 breaks that tight pattern**: its gap is
+   −0.076, roughly double v5's — still nowhere near v2's ≈0.2 leaky gap,
+   and plausibly explained by v6 changing the underlying ChEMBL feature
+   distribution rather than being a like-for-like re-measurement, but
+   flagged here rather than folded into "normal ±0.05 wandering" without
+   comment. It is still a modest dataset for 11 features, and the feature
+   set is still target/chemistry-level, missing protocol design quality,
    patient selection criteria, and competitive landscape — real drivers of
-   trial outcomes this pipeline has no source for. ~85% of rows are still
+   trial outcomes this pipeline has no source for. ~83% of rows are still
    registry-status-labeled, not results-based (limitation 1) — but
    broadening that coverage was investigated and rejected (limitation 1a);
    further hypothesis growth, re-measured every time rather than assumed
@@ -193,10 +231,10 @@ Stated plainly, up front, rather than discovered by a reviewer.
    This turned out to be a symptom of limitation 4 (too few, too similar
    hypotheses), not an independent problem: with more hypotheses and
    failures spread more broadly across drugs and time, a temporal split
-   (cutoff 2020-01-01) now produces 750 train / 90 test rows (v5, 17
-   hypotheses; was 609/77 with 12 hypotheses, 416/48 with 7 hypotheses post
-   limitation-1 fix, 361/44 with 7 hypotheses pre-fix) with both classes
-   present in both. `cross_validate_lightgbm` / `--eval-mode cv` remains in
+   (cutoff 2020-01-01) now produces 753 train / 90 test rows (v6, 17
+   hypotheses; was 750/90 in v5, 609/77 with 12 hypotheses, 416/48 with 7
+   hypotheses post limitation-1 fix, 361/44 with 7 hypotheses pre-fix) with
+   both classes present in both. `cross_validate_lightgbm` / `--eval-mode cv` remains in
    the codebase as the documented fallback for whenever a future dataset
    subset doesn't support a temporal split — this fix doesn't make that
    fallback obsolete, just unnecessary for the current full dataset.

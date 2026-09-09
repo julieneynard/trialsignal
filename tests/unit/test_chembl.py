@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 import respx
 
-from trialsignal.data.chembl import BASE_URL, ChemblClient, parse_activity
+from trialsignal.data.chembl import BASE_URL, MOLECULE_URL, ChemblClient, parse_activity
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -75,3 +75,44 @@ def test_iter_activities_respects_max_pages() -> None:
 
     assert len(records) == 2
     assert route.call_count == 1
+
+
+@respx.mock
+def test_find_molecule_ids_by_synonym_finds_generic_and_brand_name() -> None:
+    """Real fixture data: ChEMBL's molecule_synonyms table resolves both
+    "osimertinib" (generic) and "Tagrisso" (brand) to the same molecule —
+    verified against the live API before writing this client method."""
+    route = respx.get(MOLECULE_URL).mock(
+        return_value=httpx.Response(200, json=_load("chembl_molecule_search_osimertinib.json"))
+    )
+
+    client = ChemblClient()
+    ids = client.find_molecule_ids_by_synonym("osimertinib")
+
+    assert ids == ["CHEMBL3353410"]
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_find_molecule_ids_by_synonym_returns_empty_list_for_no_match() -> None:
+    respx.get(MOLECULE_URL).mock(
+        return_value=httpx.Response(200, json=_load("chembl_molecule_search_empty.json"))
+    )
+
+    client = ChemblClient()
+    assert client.find_molecule_ids_by_synonym("not-a-real-drug-xyz") == []
+
+
+@respx.mock
+def test_iter_activities_for_molecule_queries_both_filters() -> None:
+    route = respx.get(BASE_URL)
+    route.side_effect = [httpx.Response(200, json=_load("chembl_last_page.json"))]
+
+    client = ChemblClient()
+    records = list(client.iter_activities_for_molecule("CHEMBL3353410", "CHEMBL203"))
+
+    assert route.call_count == 1
+    sent_params = dict(route.calls[0].request.url.params)
+    assert sent_params["molecule_chembl_id"] == "CHEMBL3353410"
+    assert sent_params["target_chembl_id"] == "CHEMBL203"
+    assert len(records) == 2

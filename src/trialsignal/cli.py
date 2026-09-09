@@ -88,6 +88,63 @@ def fetch_activities(
 
 
 @app.command()
+def fetch_molecule_activities(
+    hypothesis_name: Annotated[
+        str, typer.Argument(help="Exact `name` of a hypothesis from `list-hypotheses`.")
+    ],
+    output: Annotated[Path, typer.Option(help=_OUTPUT_HELP)] = Path(
+        "data/raw/molecule_activities.jsonl"
+    ),
+    standard_type: Annotated[str, typer.Option(help="IC50 / EC50 / Ki / ...")] = "IC50",
+    max_pages: Annotated[int | None, typer.Option(help=_MAX_PAGES_HELP)] = None,
+) -> None:
+    """Pull ChEMBL bioactivity records for the *specific* drug in a curated
+    hypothesis, not the whole target — see chembl.py's module docstring for
+    why `fetch-activities`' target-level pull usually misses the marketed
+    drug entirely (485 real records for osimertinib vs. EGFR exist, but
+    aren't in the first few hundred rows of EGFR's 26,000+ unfiltered
+    activity list). Resolves each of the hypothesis's `drug_aliases` to a
+    ChEMBL molecule ID via the synonym table (covers both generic and
+    brand names), then fetches activities for that exact compound-target
+    pair. Feed the output to `build-features --activities-path` alongside
+    (not instead of) the target-level file — it accepts multiple paths."""
+    hypothesis = next((h for h in CURATED_HYPOTHESES if h.name == hypothesis_name), None)
+    if hypothesis is None:
+        names = ", ".join(h.name for h in CURATED_HYPOTHESES)
+        typer.echo(f"Unknown hypothesis {hypothesis_name!r}. Available: {names}", err=True)
+        raise typer.Exit(code=1)
+
+    client = ChemblClient()
+    molecule_ids: set[str] = set()
+    for alias in hypothesis.drug_aliases:
+        molecule_ids.update(client.find_molecule_ids_by_synonym(alias))
+
+    if not molecule_ids:
+        typer.echo(
+            f"No ChEMBL molecule found for any of {hypothesis.drug_aliases} — "
+            f"writing an empty file (build-features handles this gracefully).",
+            err=True,
+        )
+
+    records: list[ChemblActivity] = []
+    for molecule_id in sorted(molecule_ids):
+        records.extend(
+            client.iter_activities_for_molecule(
+                molecule_id,
+                hypothesis.chembl_target_id,
+                standard_type=standard_type,
+                max_pages=max_pages,
+            )
+        )
+    count = _write_jsonl(records, output)
+    client.close()
+    typer.echo(
+        f"Resolved {len(molecule_ids)} molecule ID(s) {sorted(molecule_ids)}, "
+        f"wrote {count} molecule-specific bioactivity records to {output}"
+    )
+
+
+@app.command()
 def list_hypotheses() -> None:
     """List the curated target/drug/disease hypotheses build-features can use."""
     for h in CURATED_HYPOTHESES:
@@ -101,7 +158,17 @@ def build_features(
     ],
     trials_path: Annotated[Path, typer.Option(help="Output of fetch-trials.")],
     target_diseases_path: Annotated[Path, typer.Option(help="Output of fetch-target.")],
-    activities_path: Annotated[Path, typer.Option(help="Output of fetch-activities.")],
+    activities_path: Annotated[
+        list[Path],
+        typer.Option(
+            help="Output(s) of fetch-activities and/or fetch-molecule-activities. "
+            "Pass multiple times to merge, e.g. the target-level pull plus the "
+            "molecule-specific one — no special handling needed to prefer the "
+            "latter: _aggregate_chembl already filters the combined pool by "
+            "pref_name, so molecule-specific rows (which carry the real drug "
+            "name) are picked out of the merged list automatically."
+        ),
+    ],
     output: Annotated[Path, typer.Option(help="Where to write the feature table (CSV).")] = Path(
         "data/processed/features.csv"
     ),
@@ -119,7 +186,7 @@ def build_features(
 
     trials = _read_jsonl(trials_path, TrialRecord)
     target_diseases = _read_jsonl(target_diseases_path, TargetDiseaseAssociation)
-    activities = _read_jsonl(activities_path, ChemblActivity)
+    activities = [a for path in activities_path for a in _read_jsonl(path, ChemblActivity)]
 
     rows = build_feature_table(hypothesis, trials, target_diseases, activities)
 
