@@ -14,6 +14,42 @@
 > Not a validated clinical, investment, or regulatory decision tool. See
 > [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md).
 
+## At a glance
+
+- **What it does:** takes a drug/target/disease hypothesis (e.g. "osimertinib
+  / EGFR / NSCLC") and returns a trial-progression risk score with a SHAP
+  explanation, live, via a FastAPI endpoint — not a static notebook result.
+- **Data:** 3 real public APIs — ClinicalTrials.gov, Open Targets, ChEMBL —
+  joined through a hand-verified, scored entity-resolution layer. No
+  synthetic or toy data anywhere in the pipeline.
+- **Result, reported honestly:** ROC-AUC ≈ 0.68 (LightGBM, temporal
+  holdout) — a real, modestly-above-chance signal, explicitly *not*
+  decision-grade. Six trained versions are documented end-to-end, including
+  the ones that got worse and a data-quality fix that moved feature
+  importances without moving the metric — see "On the trained model" below.
+- **Engineering:** typed Python end-to-end (`mypy --strict`), 124 tests
+  (fixture-mocked *and* verified against live upstream data), CI (lint,
+  types, tests, Docker build) green on every push, a Dockerized FastAPI
+  service, and a Streamlit demo client.
+- **30 seconds → skim "Skills demonstrated" just below. 5 minutes → "Why
+  this exists" and the architecture diagram. Full technical depth →
+  [`docs/METHODS.md`](docs/METHODS.md),
+  [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md),
+  [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md).**
+
+## Skills demonstrated
+
+| Skill | Where in this repo |
+|---|---|
+| API integration & resilient data engineering | 3 typed clients with retry/backoff and pagination — [`clinicaltrials.py`](src/trialsignal/data/clinicaltrials.py), [`open_targets.py`](src/trialsignal/data/open_targets.py), [`chembl.py`](src/trialsignal/data/chembl.py) |
+| Entity resolution across heterogeneous ID systems | Scored disease matching + 4 documented naming-mismatch fixes, each found by testing against the live API before hardcoding — [`entity_resolution.py`](src/trialsignal/data/entity_resolution.py) |
+| ML pipeline design & leakage prevention | Temporal train/test split (not casual k-fold), stop-reason classifier, results-based label correction — [`labels.py`](src/trialsignal/features/labels.py), [`label_validation.py`](src/trialsignal/features/label_validation.py) |
+| Rigorous model evaluation | Every result cross-checked CV vs. temporal split before being trusted; 6 versions of re-measurement, including honest regressions — [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) |
+| Interpretable ML | SHAP integration, per-prediction feature attributions exposed through the live API — [`models/train.py`](src/trialsignal/models/train.py) |
+| Production API design | Async FastAPI, in-process caching, graceful degradation (503 with no model, clean 502 on upstream failure), Dockerized — [`serving/api.py`](src/trialsignal/serving/api.py) |
+| Software engineering discipline | `mypy --strict`, `ruff`, 124 tests (`respx`-mocked + live-verified), typed schemas (`pydantic`), CI on every push — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
+| Honest technical communication | Limitations, rejected approaches, and negative results documented as thoroughly as what worked — [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) |
+
 ## Why this exists
 
 Pharma R&D costs run ~$2B per approved drug, and the single biggest lever on
