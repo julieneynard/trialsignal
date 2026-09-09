@@ -186,13 +186,32 @@ than a single number — a single AUC from a 48-row test set was never
 precise enough to treat as final, and v4 is the demonstration of exactly
 that principle, not just another data point.
 
+**v5 (17 hypotheses, more disease areas and contrast pairs).**
+`CURATED_HYPOTHESES` grew from 12 to 17 — 3 more new disease areas (AML,
+bladder cancer, colorectal cancer) and 2 more same-disease/
+different-mechanism pairs (ALK alongside EGFR for NSCLC, BCL2 alongside
+BTK for CLL). Dataset grew to **840 rows, 97 failures**. Retraining:
+temporal ROC-AUC **0.632 → 0.680** — back up, past v3's number. Checked
+against CV the same way as v4: v5's gap is 0.035 (840 rows, 90-row test),
+similar magnitude to v3 (0.031) and v4 (0.028) but flipped in direction —
+temporal now scores *higher* than CV, the first time that's happened. A
+gap of consistent small size that changes sign as the dataset grows is
+what ordinary sampling noise at this scale looks like, not a returning
+leakage problem (v2's original confound produced a ≈0.2 gap, consistently
+in one direction — a categorically different signal). Two of v5's new
+hypotheses are individually thin (FGFR3 at n=1 — erdafitinib is a 2019
+approval with a genuinely small trial history; ALK at n=7) and shouldn't
+be read as validated on their own; they still contribute real rows to the
+pooled estimate.
+
 **The chain matters as much as the destination.** v1's 0.92 was wrong for
 one reason (hypothesis confound); v2's fix revealed a second, unrelated
 problem (label noise) that had been masked by the first; v3's fix of that
 produced a real but small-sample number; v4 added more data and walked
-that number back down to a more trustworthy one. Reporting v3's 0.68 as
-"the" result and stopping there would have been the more common mistake —
-a good-looking number from a small holdout, unchecked against more data.
-Full numbers, the per-hypothesis breakdown including how many rows per
-hypothesis are results-based vs. proxy-based, and what's still open:
-`docs/MODEL_CARD.md`.
+that number back down; v5 added more data again and it moved back up. Four
+re-measurements, one consistent conclusion each time: modestly
+above-chance, not decision-grade, sampling noise of about ±0.05 at this
+dataset size. Reporting any single version's number as "the" result and
+stopping there would have missed that pattern. Full numbers, the
+per-hypothesis breakdown including how many rows per hypothesis are
+results-based vs. proxy-based, and what's still open: `docs/MODEL_CARD.md`.

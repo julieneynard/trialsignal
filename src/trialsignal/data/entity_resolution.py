@@ -100,6 +100,17 @@ _BIOMARKER_QUALIFIER = re.compile(
 # plain multiple myeloma just because both contain "myeloma".
 _PLASMA_CELL_MYELOMA_SYNONYM = re.compile(r"\bplasma cell myeloma\b", re.IGNORECASE)
 
+# Fourth instance, found checking FGFR3/erdafitinib/bladder cancer against
+# the live API before hardcoding it. Open Targets prefixes bladder disease
+# names with the anatomically formal "urinary" ("urinary bladder cancer" /
+# "...carcinoma"); CT.gov trials essentially always just say "Bladder
+# Cancer". Measured: "Bladder Cancer" vs "urinary bladder cancer" scores
+# 0.78 unfixed — below threshold despite being the same disease. Four for
+# four now: every batch of hypotheses added to this project has needed at
+# least one of these fixes, which is itself the pattern worth remembering
+# for the next batch (see docs/LIMITATIONS.md item 3).
+_URINARY_BLADDER_SYNONYM = re.compile(r"\burinary bladder\b", re.IGNORECASE)
+
 
 def normalize_condition_text(raw: str) -> str:
     """Lowercase, strip punctuation, expand known abbreviations, and drop
@@ -113,6 +124,7 @@ def normalize_condition_text(raw: str) -> str:
     text = _CARCINOMA_SYNONYM.sub("cancer", text)
     text = _MYELOGENOUS_SYNONYM.sub("myeloid", text)
     text = _PLASMA_CELL_MYELOMA_SYNONYM.sub("multiple myeloma", text)
+    text = _URINARY_BLADDER_SYNONYM.sub("bladder", text)
     text = _NON_ALNUM.sub(" ", text)
     text = " ".join(text.split())
     return CONDITION_ALIASES.get(text, text)

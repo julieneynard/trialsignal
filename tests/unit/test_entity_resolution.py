@@ -56,6 +56,17 @@ def test_normalize_does_not_collapse_smoldering_myeloma() -> None:
     )
 
 
+def test_normalize_collapses_urinary_bladder_to_bladder() -> None:
+    """CT.gov trials say "Bladder Cancer"; Open Targets' actual disease
+    entry is "urinary bladder cancer" (anatomically formal prefix) — a
+    fourth instance of the same naming-mismatch class, found by checking
+    the FGFR3/erdafitinib hypothesis against the live API before
+    hardcoding it (see _URINARY_BLADDER_SYNONYM's module comment)."""
+    assert normalize_condition_text("Bladder Cancer") == normalize_condition_text(
+        "Urinary Bladder Cancer"
+    )
+
+
 def test_normalize_strips_biomarker_positivity_qualifier() -> None:
     assert (
         normalize_condition_text("Chronic Myelogenous Leukemia, BCR-ABL1 Positive")

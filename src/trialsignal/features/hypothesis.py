@@ -179,4 +179,65 @@ CURATED_HYPOTHESES: list[Hypothesis] = [
         drug_aliases=["palbociclib", "ibrance", "pd-0332991", "pd0332991"],
         ctgov_condition_query="breast cancer",
     ),
+    Hypothesis(
+        # Same disease as EGFR (NSCLC) but a different target/mechanism —
+        # gives the model a direct within-disease contrast for the very
+        # first hypothesis in this set, the way MTOR/KDR and CDK4/ERBB2
+        # already contrast within RCC and breast cancer.
+        name="ALK / crizotinib / NSCLC",
+        gene_symbol="ALK",
+        ensembl_target_id="ENSG00000171094",
+        chembl_target_id="CHEMBL4247",
+        drug_aliases=["crizotinib", "xalkori", "pf-02341066"],
+        ctgov_condition_query="non-small cell lung cancer",
+    ),
+    Hypothesis(
+        # New disease area (acute myeloid leukemia) and new mechanism
+        # (FLT3 inhibitor) — the third blood-cancer hypothesis (alongside
+        # ABL1/CML and BTK/CD38's diseases) but the first in AML
+        # specifically.
+        name="FLT3 / midostaurin / acute myeloid leukemia",
+        gene_symbol="FLT3",
+        ensembl_target_id="ENSG00000122025",
+        chembl_target_id="CHEMBL1974",
+        drug_aliases=["midostaurin", "rydapt", "pkc412"],
+        ctgov_condition_query="acute myeloid leukemia",
+    ),
+    Hypothesis(
+        # Same disease as BTK (CLL) but a different mechanism (BCL2/
+        # apoptosis-regulator inhibitor, not a kinase) — another
+        # within-disease contrast pair.
+        name="BCL2 / venetoclax / chronic lymphocytic leukemia",
+        gene_symbol="BCL2",
+        ensembl_target_id="ENSG00000171791",
+        chembl_target_id="CHEMBL4860",
+        drug_aliases=["venetoclax", "venclexta", "venclyxto", "abt-199", "gdc-0199"],
+        ctgov_condition_query="chronic lymphocytic leukemia",
+    ),
+    Hypothesis(
+        # New disease area (bladder cancer) and new mechanism (FGFR
+        # inhibitor). Open Targets' bladder disease entries are prefixed
+        # "urinary bladder ..." — checked against the live API before
+        # hardcoding this hypothesis and found a fourth instance of the
+        # naming-mismatch pattern (see entity_resolution.py's
+        # _URINARY_BLADDER_SYNONYM).
+        name="FGFR3 / erdafitinib / bladder cancer",
+        gene_symbol="FGFR3",
+        ensembl_target_id="ENSG00000068078",
+        chembl_target_id="CHEMBL2742",
+        drug_aliases=["erdafitinib", "balversa"],
+        ctgov_condition_query="bladder cancer",
+    ),
+    Hypothesis(
+        # New disease area (colorectal cancer) and a fourth antibody, but
+        # against the VEGF *ligand* (VEGFA) rather than its receptor (KDR,
+        # already in this set) — a real, meaningfully different target
+        # despite the same pathway, not a duplicate of the KDR hypothesis.
+        name="VEGFA / bevacizumab / colorectal cancer",
+        gene_symbol="VEGFA",
+        ensembl_target_id="ENSG00000112715",
+        chembl_target_id="CHEMBL1783",
+        drug_aliases=["bevacizumab", "avastin"],
+        ctgov_condition_query="colorectal cancer",
+    ),
 ]

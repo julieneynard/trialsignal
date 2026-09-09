@@ -90,8 +90,14 @@ Stated plainly, up front, rather than discovered by a reviewer.
    unfixed, fixed with `_PLASMA_CELL_MYELOMA_SYNONYM` (deliberately the
    literal phrase, not a general "myeloma" rule, since "smoldering plasma
    cell myeloma" is a distinct precursor condition that must not collapse
-   into it). Three for three: every batch of new hypotheses added to this
-   project has needed its own naming check. Measured on the real dataset
+   into it). A fourth was found adding v5's hypotheses: Open Targets names
+   bladder disease "urinary bladder cancer"/"...carcinoma" — checked
+   against the live API before hardcoding FGFR3/erdafitinib, scored 0.78
+   unfixed, fixed with `_URINARY_BLADDER_SYNONYM`. Four for four now:
+   every batch of new hypotheses added to this project has needed its own
+   naming check, without exception — treat that as the expected cost of
+   adding the next one, not a risk that might not materialize. Measured on
+   the real dataset
    the current model was trained on (post item-1 fix — numbers below
    include results-based rescues): pulling all ClinicalTrials.gov trials
    for "non-small cell lung cancer" (3,977 trials) and "chronic myeloid
@@ -124,7 +130,17 @@ Stated plainly, up front, rather than discovered by a reviewer.
    measured that way. The 5 hypotheses added for v4 continue the pattern:
    AR/enzalutamide/prostate cancer 43/3,984, BTK/ibrutinib/CLL 48/2,601,
    CD38/daratumumab/multiple myeloma 67/3,967, MTOR/everolimus/renal cell
-   carcinoma 46/2,710, CDK4/palbociclib/breast cancer 18/3,988.
+   carcinoma 46/2,710, CDK4/palbociclib/breast cancer 18/3,988. The 5
+   hypotheses added for v5: ALK/crizotinib/NSCLC 7/3,977 (reuses the
+   existing NSCLC pool — a much lower yield than EGFR's 21/3,977 from the
+   same pool, since ALK-positive NSCLC is a smaller trial-eligible
+   subpopulation), FLT3/midostaurin/AML 16/3,976, BCL2/venetoclax/CLL
+   28/2,601, FGFR3/erdafitinib/bladder cancer **1/2,293** (erdafitinib's
+   2019 approval means a genuinely small real trial history, not a
+   pipeline problem — see `docs/MODEL_CARD.md`), VEGFA/bevacizumab/
+   colorectal cancer 102/3,996 (bevacizumab is a long-established drug;
+   contrast with FGFR3 shows the funnel yield tracks real-world trial
+   volume, not a fixed rate).
 
 4. **[Fixed in v2, kept here as a worked example] 60 labeled rows from 2
    hypotheses was not enough to evaluate a model on, and v1's ROC-AUC
@@ -141,32 +157,34 @@ Stated plainly, up front, rather than discovered by a reviewer.
    actually mean") and `docs/MODEL_CARD.md`. **This is still the most
    important thing to understand about this model**: the confound is fixed,
    and (see #4a below, kept current as the model has been re-measured
-   through v3 and v4) the label-quality fix and further hypothesis growth
-   have since moved accuracy from near-chance to a real, modestly
-   above-chance result — read #4a's current text for the up-to-date number,
-   not the "near-chance" framing this note originally shipped with.
+   through v3, v4, and v5) the label-quality fix and further hypothesis
+   growth have since moved accuracy from near-chance to a real, modestly
+   above-chance result that keeps getting re-checked, not just asserted
+   once — read #4a's current text for the up-to-date number, not the
+   "near-chance" framing this note originally shipped with.
 
-4a. **[Current as of v4 — no longer near-chance, but still far from
-   decision-grade, and the number has moved twice since this note was
-   first written.]** Confound fixed (limitation 4) + results-validated
-   labels (limitation 1) took temporal ROC-AUC from ≈0.5 (v2) to ≈0.68
-   (v3, 464 rows, 48-row test). Adding 5 more hypotheses for disease
-   diversity (v4, 686 rows, 77-row test) brought it to **≈0.63** — *down*
-   from v3, and confirmed as the more trustworthy number precisely because
-   the CV-vs-temporal gap (the metric this project uses throughout to
-   judge whether a number is real) stayed just as tight in v4 as v3
-   (≈0.028 vs ≈0.031) despite the point estimate dropping. Read that as
-   "v3's 48-row test set was noisy and happened to read high," not "adding
-   hypotheses hurt the model." It is still a modest dataset for 11 features
-   (77 held-out rows still carries real sampling uncertainty — treat 0.63
-   as "modestly above chance, reasonably estimated," not a precise value),
-   and the feature set is still target/chemistry-level, missing protocol
-   design quality, patient selection criteria, and competitive landscape —
-   real drivers of trial outcomes this pipeline has no source for. ~86% of
-   rows are still registry-status-labeled, not results-based (limitation
-   1) — but broadening that coverage was investigated and rejected
-   (limitation 1a); further hypothesis growth, re-measured each time
-   rather than assumed to help, is the validated lever left.
+4a. **[Current as of v5 — no longer near-chance, but still far from
+   decision-grade, and the number has moved three times since this note
+   was first written.]** Confound fixed (limitation 4) + results-validated
+   labels (limitation 1) took temporal ROC-AUC from ≈0.5 (v2) to ≈0.68 (v3,
+   464 rows, 48-row test). 5 more hypotheses for disease diversity (v4, 686
+   rows, 77-row test) brought it to ≈0.63 — down. 5 more again (v5, 840
+   rows, 90-row test) brought it back to **≈0.68**. Each move was checked
+   against CV before being trusted: the CV-temporal gap has stayed in the
+   ≈0.03 band across v3/v4/v5 (0.031, 0.028, 0.035 — v5's flipped in
+   direction, temporal now scoring higher than CV, but the *magnitude*
+   stayed consistent), unlike v2's ≈0.2 gap in one fixed direction, which
+   is what real leakage looked like when this project had it. Read the
+   ±0.05 wandering as normal sampling variation at n≈800–900, not as
+   evidence about whether any particular batch of hypotheses helped or
+   hurt. It is still a modest dataset for 11 features, and the feature set
+   is still target/chemistry-level, missing protocol design quality,
+   patient selection criteria, and competitive landscape — real drivers of
+   trial outcomes this pipeline has no source for. ~85% of rows are still
+   registry-status-labeled, not results-based (limitation 1) — but
+   broadening that coverage was investigated and rejected (limitation 1a);
+   further hypothesis growth, re-measured every time rather than assumed
+   to help, is the validated lever left.
 
 5. **[Fixed in v2] The v1 dataset's failures were clustered in time (all 3
    postdated 2021-06-29), which made a temporal train/test split
@@ -175,10 +193,10 @@ Stated plainly, up front, rather than discovered by a reviewer.
    This turned out to be a symptom of limitation 4 (too few, too similar
    hypotheses), not an independent problem: with more hypotheses and
    failures spread more broadly across drugs and time, a temporal split
-   (cutoff 2020-01-01) now produces 609 train / 77 test rows (v4, 12
-   hypotheses; was 416/48 with 7 hypotheses post limitation-1 fix, 361/44
-   with 7 hypotheses pre-fix) with both classes present in both.
-   `cross_validate_lightgbm` / `--eval-mode cv` remains in
+   (cutoff 2020-01-01) now produces 750 train / 90 test rows (v5, 17
+   hypotheses; was 609/77 with 12 hypotheses, 416/48 with 7 hypotheses post
+   limitation-1 fix, 361/44 with 7 hypotheses pre-fix) with both classes
+   present in both. `cross_validate_lightgbm` / `--eval-mode cv` remains in
    the codebase as the documented fallback for whenever a future dataset
    subset doesn't support a temporal split — this fix doesn't make that
    fallback obsolete, just unnecessary for the current full dataset.
@@ -202,7 +220,7 @@ Stated plainly, up front, rather than discovered by a reviewer.
    exhausted the client's retry budget. `/score` caps pagination at 2 pages
    per source instead (a cache-miss request now takes single-digit seconds
    — see `serving/api.py`'s module docstring for the full reasoning and the
-   sorted-by-score argument for why this is safe across all 12 current
+   sorted-by-score argument for why this is safe across all 17 current
    hypotheses). Two concurrent cache-miss requests for the *same*
    never-yet-cached hypothesis will both independently hit the live APIs
    rather than one waiting on the other's in-flight fetch — harmless
