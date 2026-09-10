@@ -15,6 +15,13 @@ API_URL = os.environ.get("TRIALSIGNAL_API_URL", "http://localhost:8000")
 st.set_page_config(page_title="TrialSignal", page_icon="🧬")
 st.title("TrialSignal")
 st.caption("Clinical trial progression risk scoring for drug/target/disease hypotheses.")
+st.warning(
+    "**Research/portfolio project built entirely on public data.** Not a "
+    "validated clinical, investment, or regulatory decision tool. "
+    "See [`docs/LIMITATIONS.md`]"
+    "(https://github.com/julieneynard/trialsignal/blob/main/docs/LIMITATIONS.md) "
+    "for what this model does and doesn't support."
+)
 
 with st.sidebar:
     st.markdown(f"**API:** `{API_URL}`")

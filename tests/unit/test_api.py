@@ -69,6 +69,21 @@ def test_score_returns_400_for_unknown_gene_symbol(trained_model_path, monkeypat
     assert "EGFR" in response.json()["detail"]  # lists the available curated hypotheses
 
 
+def test_score_rate_limits_after_threshold_requests(trained_model_path, monkeypatch) -> None:
+    """The limiter runs as a route dependency, ahead of the handler body, so
+    this doesn't need live/mocked upstream calls to exercise it — an
+    unknown-gene request (400, resolved before any upstream fetch) is enough
+    to prove the 21st request in a window gets rejected before reaching the
+    handler at all."""
+    monkeypatch.setenv("TRIALSIGNAL_MODEL_PATH", str(trained_model_path))
+    with TestClient(app) as client:
+        payload = {"gene_symbol": "NOTAREALGENE", "disease_name": "some disease"}
+        statuses = [client.post("/score", json=payload).status_code for _ in range(21)]
+
+    assert statuses[:20] == [400] * 20
+    assert statuses[20] == 429
+
+
 @respx.mock
 def test_score_returns_422_for_unresolvable_disease(trained_model_path, monkeypatch) -> None:
     monkeypatch.setenv("TRIALSIGNAL_MODEL_PATH", str(trained_model_path))

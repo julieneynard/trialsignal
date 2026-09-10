@@ -47,17 +47,26 @@ Design choices worth flagging:
   first ~200 rows of EGFR's 26,000+ unfiltered activity list); the
   molecule-first query finds them directly. See chembl.py's module
   docstring for the full reasoning.
+
+- `/score` is rate-limited per client IP (`_enforce_rate_limit`). This is
+  a public-data demo, not a defended production service — the limiter
+  exists so one client hammering the endpoint can't also hammer Open
+  Targets/ChEMBL on this project's behalf on every cache miss, not to
+  resist a determined attacker. A bare in-process fixed-window counter is
+  deliberately all this needs: single-process deployment, no auth, no
+  shared state to coordinate.
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import TypeVar
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from tenacity import RetryError
 
 from trialsignal.data.chembl import ChemblClient
@@ -79,18 +88,44 @@ _TARGET_DISEASES_MAX_PAGES = 2
 
 _T = TypeVar("_T")
 
+_RATE_LIMIT_WINDOW_SECONDS = 60.0
+_RATE_LIMIT_MAX_REQUESTS = 20
+
 _state: dict[str, ModelBundle | None] = {"model": None}
 _target_disease_cache: dict[str, list[TargetDiseaseAssociation]] = {}
 _activity_cache: dict[str, list[ChemblActivity]] = {}
+_rate_limit_state: dict[str, tuple[int, float]] = {}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _state["model"] = load_model()
+    _rate_limit_state.clear()
     yield
     _state["model"] = None
     _target_disease_cache.clear()
     _activity_cache.clear()
+    _rate_limit_state.clear()
+
+
+def _enforce_rate_limit(request: Request) -> None:
+    client_host = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    count, window_start = _rate_limit_state.get(client_host, (0, now))
+    if now - window_start >= _RATE_LIMIT_WINDOW_SECONDS:
+        count, window_start = 0, now
+    count += 1
+    _rate_limit_state[client_host] = (count, window_start)
+    if count > _RATE_LIMIT_MAX_REQUESTS:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Rate limit exceeded: max {_RATE_LIMIT_MAX_REQUESTS} requests per "
+                f"{int(_RATE_LIMIT_WINDOW_SECONDS)}s per client. This demo is shared "
+                "with other visitors and backed by public upstream APIs (Open "
+                "Targets, ChEMBL) — please wait a moment and retry."
+            ),
+        )
 
 
 app = FastAPI(
@@ -205,7 +240,7 @@ async def health() -> HealthResponse:
     )
 
 
-@app.post("/score", response_model=ScoreResponse)
+@app.post("/score", response_model=ScoreResponse, dependencies=[Depends(_enforce_rate_limit)])
 async def score(request: ScoreRequest) -> ScoreResponse:
     model = _state["model"]
     if model is None:
