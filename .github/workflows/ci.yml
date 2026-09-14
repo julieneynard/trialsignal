@@ -42,3 +42,28 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build API image
         run: docker build -t trialsignal-api:ci .
+
+      # A successful `docker build` only proves the image assembles -- it
+      # doesn't prove the app can actually start. Found the hard way on
+      # Render: python:3.11-slim doesn't ship libgomp, so the process
+      # crashed the moment it tried to unpickle a lightgbm model (import
+      # happens lazily, inside joblib.load, not at module import time -- see
+      # Dockerfile's libgomp1 comment). Run the real image with the real
+      # published model artifact and require /health to actually report
+      # model_loaded: true before calling this job green.
+      - name: Run container with the real model and verify /health
+        run: |
+          docker run -d --name trialsignal-ci -p 8000:8000 \
+            -e TRIALSIGNAL_MODEL_URL=https://github.com/julieneynard/trialsignal/releases/download/v6-model/trialsignal_model.joblib \
+            trialsignal-api:ci
+          ok=""
+          for i in $(seq 1 20); do
+            if curl -sf http://localhost:8000/health | grep -q '"model_loaded":true'; then
+              ok=1
+              break
+            fi
+            sleep 2
+          done
+          docker logs trialsignal-ci
+          docker rm -f trialsignal-ci
+          test -n "$ok"

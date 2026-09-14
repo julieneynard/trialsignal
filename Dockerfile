@@ -1,5 +1,13 @@
 FROM python:3.11-slim AS base
 
+# libgomp1: lightgbm's compiled booster links against libgomp (OpenMP) at
+# import time, not just at training/inference time. python:3.11-slim doesn't
+# ship it, so without this the process crashes on startup the moment
+# load_model() unpickles a bundle that imports lightgbm -- "OSError:
+# libgomp.so.1: cannot open shared object file" -- found deploying to Render.
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN pip install --no-cache-dir uv
 
 WORKDIR /app
