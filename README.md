@@ -227,6 +227,16 @@ docker build -t trialsignal-api .
 docker run -p 8000:8000 -v $(pwd)/models:/app/models trialsignal-api
 ```
 
+### Deploying the API without a local model file
+
+`models/*.joblib` is deliberately gitignored (see "Repo layout" below) — a
+freshly built container has no trained artifact. Rather than bake a binary
+into the image or git history, `load_model()` will fetch it from a URL at
+startup if the local path is missing and `TRIALSIGNAL_MODEL_URL` is set
+(e.g. to a GitHub Release asset URL); unset, this is a complete no-op and
+`/health` reports `model_loaded: false` as usual — see
+`models/registry.py`'s module docstring.
+
 ## Repo layout
 
 ```
