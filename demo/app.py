@@ -10,7 +10,21 @@ import os
 import httpx
 import streamlit as st
 
-API_URL = os.environ.get("TRIALSIGNAL_API_URL", "http://localhost:8000")
+
+def _api_url() -> str:
+    """Streamlit Community Cloud's "Secrets" panel is the documented,
+    first-class way to configure a deployed app (TOML, injected as
+    st.secrets) -- it is not guaranteed to also land in os.environ, unlike a
+    plain env var on Render or a local `TRIALSIGNAL_API_URL=... streamlit
+    run`. Check st.secrets first, then fall back to os.environ, so both
+    deployment paths work without relying on undocumented behavior."""
+    try:
+        return str(st.secrets["TRIALSIGNAL_API_URL"])
+    except (KeyError, FileNotFoundError):
+        return os.environ.get("TRIALSIGNAL_API_URL", "http://localhost:8000")
+
+
+API_URL = _api_url()
 
 st.set_page_config(page_title="TrialSignal", page_icon="🧬")
 st.title("TrialSignal")
