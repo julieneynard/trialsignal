@@ -10,6 +10,11 @@
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-informational)
 
+**[Try the live demo →](https://trialsignal-demo.streamlit.app)** — no
+install, no clone. First request per hypothesis fetches live reference data
+(a few seconds); the free-tier API may take ~50s to wake up if it's been
+idle.
+
 > **Disclaimer:** research/portfolio project built entirely on public data.
 > Not a validated clinical, investment, or regulatory decision tool. See
 > [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md).
@@ -30,7 +35,9 @@
 - **Engineering:** typed Python end-to-end (`mypy --strict`), 124 tests
   (fixture-mocked *and* verified against live upstream data), CI (lint,
   types, tests, Docker build) green on every push, a Dockerized FastAPI
-  service, and a Streamlit demo client.
+  service deployed live on Render, and a
+  [Streamlit demo](https://trialsignal-demo.streamlit.app) client — click it,
+  don't just read about it.
 - **30 seconds → skim "Skills demonstrated" just below. 5 minutes → "Why
   this exists" and the architecture diagram. Full technical depth →
   [`docs/METHODS.md`](docs/METHODS.md),
