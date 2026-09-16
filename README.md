@@ -33,12 +33,14 @@ showing the SHAP features that drove the score.*
 - **Data:** 3 real public APIs — ClinicalTrials.gov, Open Targets, ChEMBL —
   joined through a hand-verified, scored entity-resolution layer. No
   synthetic or toy data anywhere in the pipeline.
-- **Result, reported honestly:** ROC-AUC ≈ 0.68 (LightGBM, temporal
+- **Result, reported honestly:** ROC-AUC ≈ 0.69 (LightGBM, temporal
   holdout) — a real, modestly-above-chance signal, explicitly *not*
-  decision-grade. Six trained versions are documented end-to-end, including
-  the ones that got worse and a data-quality fix that moved feature
-  importances without moving the metric — see "On the trained model" below.
-- **Engineering:** typed Python end-to-end (`mypy --strict`), 124 tests
+  decision-grade. Seven trained versions are documented end-to-end,
+  including the ones that got worse, a data-quality fix that moved feature
+  importances without moving the metric, and a real test of whether the
+  pipeline generalizes past oncology into a second therapeutic area — see
+  "On the trained model" below.
+- **Engineering:** typed Python end-to-end (`mypy --strict`), 128 tests
   (fixture-mocked *and* verified against live upstream data), CI (lint,
   types, tests, Docker build) green on every push, a Dockerized FastAPI
   service deployed live on Render, and a
@@ -60,7 +62,7 @@ showing the SHAP features that drove the score.*
 | Rigorous model evaluation | Every result cross-checked CV vs. temporal split before being trusted; 6 versions of re-measurement, including honest regressions — [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) |
 | Interpretable ML | SHAP integration, per-prediction feature attributions exposed through the live API — [`models/train.py`](src/trialsignal/models/train.py) |
 | Production API design | Async FastAPI, in-process caching, graceful degradation (503 with no model, clean 502 on upstream failure), Dockerized — [`serving/api.py`](src/trialsignal/serving/api.py) |
-| Software engineering discipline | `mypy --strict`, `ruff`, 124 tests (`respx`-mocked + live-verified), typed schemas (`pydantic`), CI on every push — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
+| Software engineering discipline | `mypy --strict`, `ruff`, 128 tests (`respx`-mocked + live-verified), typed schemas (`pydantic`), CI on every push — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 | Honest technical communication | Limitations, rejected approaches, and negative results documented as thoroughly as what worked — [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) |
 
 ## Why this exists
@@ -116,7 +118,7 @@ genuinely next, not yet built.
 | Entity resolution (condition/gene normalization + scored disease matching) | ✅ Implemented, tested |
 | Feature engineering / join pipeline (`trialsignal build-features`) | ✅ Implemented, tested |
 | Model training (temporal + CV split, LightGBM, SHAP) | ✅ Implemented, tested, trained on real data — **read the caveat below** |
-| FastAPI `/score` endpoint (live scoring) | ✅ Implemented, tested, verified against live Open Targets + ChEMBL for all 17 curated hypotheses |
+| FastAPI `/score` endpoint (live scoring) | ✅ Implemented, tested, verified against live Open Targets + ChEMBL for all 22 curated hypotheses |
 | Streamlit demo | ✅ Implemented — thin client over `/score`, renders risk score + SHAP + warnings |
 | Results-based label validation & correction (`trialsignal validate-labels`, `labels.resolve_trial_label`) | ✅ Implemented, tested, run on real data — found a real label-quality problem, then fixed it (see below) |
 
@@ -137,7 +139,7 @@ on a transient upstream 5xx, fixed by capping pagination depth and adding a
 clean 502 for genuine upstream failures (see `serving/api.py`'s module
 docstring and `docs/LIMITATIONS.md` item 8).
 
-**On the trained model — read this before looking at the AUC.** Six
+**On the trained model — read this before looking at the AUC.** Seven
 versions, each shipped only after being measured against real data:
 
 - **v1** (2 hypotheses): ROC-AUC ≈ 0.92 — confounded. With only EGFR and
@@ -177,16 +179,28 @@ versions, each shipped only after being measured against real data:
   wave off: the CV-temporal gap widened to **≈−0.076** (from v5's −0.035) —
   still far below v2's leaky ≈0.2 gap, but the widest since the confound
   was fixed, and reported as an open question rather than smoothed over.
+- **v7** (22 hypotheses — first extension past oncology: 5 immunology/
+  rheumatology hypotheses added, TNF/IL6R/JAK1 for rheumatoid arthritis +
+  IL17A/IL12B for psoriasis): **1,186 rows, 135 failures**. Temporal
+  ROC-AUC: **≈0.69 (0.689)** — up, and the CV-temporal gap that v6 left
+  open came back down to **≈−0.072**, essentially the same size as v6's
+  rather than continuing to widen — the strongest evidence yet that v6's
+  wider gap was sampling noise, not returning leakage. A genuinely honest
+  extra finding: unlike every oncology batch (4-for-4 needed a naming-
+  mismatch fix), **none** of these 5 needed one — checked live the same
+  way, "Rheumatoid Arthritis" and "Psoriasis" both scored a perfect 1.000
+  against Open Targets. Calibration (recomputed on the full pool) also
+  improved: Expected Calibration Error dropped from v6's 0.073 to **0.050**.
 
 **Still not decision-grade**, and the headline number has now moved
-0.5 → 0.68 → 0.63 → 0.68 → 0.68 across five re-measurements — which is the
-actual point of publishing every version instead of only the current one:
-the honest summary is "reliably modestly above chance, ±0.05–0.08," not a
-single precise figure. ~83% of the dataset is still registry-status-labeled,
-not results-based (broadening that coverage was investigated and explicitly
-rejected as infeasible without fabricating labels — see
-`docs/LIMITATIONS.md` item 1a). Full numbers, the per-hypothesis
-breakdown, and the complete v1→v2→v3→v4→v5→v6 reasoning:
+0.5 → 0.68 → 0.63 → 0.68 → 0.68 → 0.69 across six re-measurements — which
+is the actual point of publishing every version instead of only the
+current one: the honest summary is "reliably modestly above chance,
+±0.05–0.08," not a single precise figure. ~80% of the dataset is still
+registry-status-labeled, not results-based (broadening that coverage was
+investigated and explicitly rejected as infeasible without fabricating
+labels — see `docs/LIMITATIONS.md` item 1a). Full numbers, the
+per-hypothesis breakdown, and the complete v1→v2→v3→v4→v5→v6→v7 reasoning:
 [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) and
 [`docs/METHODS.md`](docs/METHODS.md).
 
@@ -269,20 +283,22 @@ docs/          # METHODS.md, MODEL_CARD.md, LIMITATIONS.md
 What would actually move the evaluation numbers, roughly in priority order
 (all cross-referenced from `docs/LIMITATIONS.md`):
 
-1. ~~Expand `CURATED_HYPOTHESES` beyond 2.~~ **Done, three times, ongoing.**
+1. ~~Expand `CURATED_HYPOTHESES` beyond 2.~~ **Done, four times, ongoing.**
    2 → 7 (fixed the hypothesis-identity confound; on its own did *not* fix
    predictive accuracy, temporal ROC-AUC stayed ≈0.5 until item 2 below) →
    12 (3 new disease areas) → 17 (3 more disease areas + 2 more
-   same-disease/different-mechanism contrast pairs). Each expansion was
-   re-measured, not assumed to help: 0.68 (7 hyp.) → 0.63 (12 hyp.) → 0.68
-   (17 hyp.) — a real wobble of ±0.05, checked against CV each time and
-   consistent with sampling noise at this scale, not a trend in either
-   direction (`docs/MODEL_CARD.md`). Continuing to add hypotheses remains
-   the validated lever; each addition needs its own naming-mismatch check
-   against the live API (4 for 4 so far — carcinoma/cancer, CML
-   myelogenous/myeloid, multiple/plasma-cell myeloma, bladder/urinary
-   bladder) and its own re-measurement, not just a bigger number assumed
-   to be better.
+   same-disease/different-mechanism contrast pairs) → 22 (5 immunology/
+   rheumatology hypotheses, the first outside oncology — see item 6 below).
+   Each expansion was re-measured, not assumed to help: 0.68 (7 hyp.) →
+   0.63 (12 hyp.) → 0.68 (17 hyp.) → 0.69 (22 hyp.) — a real wobble of
+   ±0.05, checked against CV each time and consistent with sampling noise
+   at this scale, not a trend in either direction (`docs/MODEL_CARD.md`).
+   Continuing to add hypotheses remains the validated lever; each addition
+   needs its own naming-mismatch check against the live API — 4 for 4 in
+   oncology (carcinoma/cancer, CML myelogenous/myeloid, multiple/
+   plasma-cell myeloma, bladder/urinary bladder), 0 for 5 in immunology, a
+   genuinely useful negative result — and its own re-measurement, not just
+   a bigger number assumed to be better.
 2. ~~Parse CT.gov's trial *results* section~~ **Done.** `resolve_trial_label`
    substitutes the real primary-endpoint result for the registry-status
    proxy wherever available (~14% of trials) and rescues trials the proxy
@@ -314,9 +330,20 @@ What would actually move the evaluation numbers, roughly in priority order
    independently — verified with a real concurrency test (two
    `asyncio.gather`'d calls against a deliberately slow mock), not just a
    read-through of the code (LIMITATIONS.md item 8).
-5. Extend past oncology once the pipeline's assumptions (stop-reason
-   vocabulary, disease-naming patterns) are re-validated for another
-   therapeutic area. The only item left open on this list.
+5. ~~Extend past oncology~~ **Done (v7).** 5 immunology/rheumatology
+   hypotheses added — TNF/adalimumab, IL6R/tocilizumab, and JAK1/
+   tofacitinib for rheumatoid arthritis, IL17A/secukinumab and IL12B/
+   ustekinumab for psoriasis. Temporal ROC-AUC moved to ≈0.69 and the
+   CV-temporal gap came back down to the same size as v6's rather than
+   widening further — the model and pipeline generalize to this second
+   therapeutic area, not just to more oncology data. Also a clean
+   negative result: 0 of the 5 needed a naming-mismatch fix, versus 4-for-4
+   in every oncology batch (`docs/LIMITATIONS.md` item 3b).
+6. Extend to a third therapeutic area (cardiovascular and infectious
+   disease are the natural next candidates — neither shares oncology's or
+   immunology's trial dynamics) once there's a specific reason to, rather
+   than to keep inflating the hypothesis count. The only item left
+   genuinely open on this list.
 
 ## Docs
 

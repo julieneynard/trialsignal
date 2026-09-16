@@ -113,12 +113,15 @@ applied correctly rather than silently leaving the old values in place.
   sizes were too small for this to mean anything. Built from
   `cross_validate_lightgbm`'s leakage-free out-of-fold predictions (each
   row scored by a fold that never trained on it), not the temporal
-  holdout's 90-row test set, which alone would be far too thin to bin. See
-  `docs/MODEL_CARD.md`'s Evaluation section for the table and the real
-  finding it surfaced: the model is systematically under-confident in its
-  own lowest-confidence decile (predicts ≈60% success, actual ≈87%) —
-  `risk_score` should be read as a ranking signal, not a literal
-  probability, especially for the trials it's least sure about.
+  holdout's test set, which alone would be far too thin to bin. Recomputed
+  in v7 on the full 22-hypothesis pool (n=1,186, ≈118-122/bin) — Expected
+  Calibration Error improved from 0.073 to 0.050 as the failure count grew
+  from 102 to 135. See `docs/MODEL_CARD.md`'s Evaluation section for the
+  current table and the real finding it surfaced: the model is
+  systematically under-confident in its own lowest-confidence decile
+  (v7: predicts ≈65% success, actual ≈84%) — `risk_score` should be read
+  as a ranking signal, not a literal probability, especially for the
+  trials it's least sure about.
 
 ## What the real numbers actually mean (read before citing the AUC)
 
@@ -265,6 +268,52 @@ particular 90-row temporal test set rather than a systemic problem. Still,
 honest read, not "confirmed fine" — worth re-checking again as more
 hypotheses or more results-based labels are added.
 
+**v7 (22 hypotheses, first extension past oncology).** `CURATED_HYPOTHESES`
+grew from 17 to 22 with 5 immunology/rheumatology hypotheses — TNF/
+adalimumab, IL6R/tocilizumab, and JAK1/tofacitinib all for rheumatoid
+arthritis (a same-disease/different-mechanism triple), IL17A/secukinumab
+and IL12B/ustekinumab both for psoriasis (a second such pair). Chosen
+specifically to test generalization, not to pad the count: mechanistically
+this is immune modulation, not cytotoxic/targeted anti-cancer action, and
+Open Targets/ChEMBL both have strong independent coverage here, making it
+a genuine out-of-domain test rather than "more oncology." Before
+hardcoding anything, checked entity resolution the same way as every prior
+batch (score real CT.gov phrasing against the live Open Targets disease
+name) — and found the pipeline's biggest recurring failure mode from
+oncology (4-for-4 batches needing a naming-mismatch synonym fix) simply
+didn't occur here: "Rheumatoid Arthritis," "Psoriasis," and "Psoriatic
+Arthritis" all scored a perfect 1.000, and even "Crohn's Disease" vs. Open
+Targets' "Crohn disease" scored 0.929 — comfortably above the 0.85
+threshold, zero synonym-table entries needed. That's a real, useful
+negative result: it means the carcinoma/cancer-style mismatches are a
+property of *oncology's* specific colloquial-vs-formal naming conventions,
+not a property of free-text medical data or of this pipeline's matching
+approach in general. Also caught one real error before it shipped, the
+same way prior naming mismatches were caught — by verifying against the
+live API instead of assuming: ustekinumab binds the IL-12/IL-23 shared p40
+subunit (gene `IL12B`), not IL23A's p19 subunit (that's guselkumab/
+risankizumab's target). `IL12B` came back with zero ChEMBL bioactivity
+records at *both* the target and molecule level — consistent with, and a
+further data point for, the antibody-coverage-gap structural finding from
+v6 (IL-12B is a cytokine subunit, not the kind of target ChEMBL's
+small-molecule assays typically cover).
+
+Dataset grew to **1,186 rows, 135 failures** (v6: 843, 102). Retraining:
+temporal ROC-AUC **0.676 → 0.689** — up, and more importantly, the
+CV-temporal gap came back down to **−0.072**, essentially the same size as
+v6's −0.076 rather than continuing to widen. This is the cleanest evidence
+yet that v6's wider gap was sampling noise and not a resurfacing leakage
+problem: a genuinely different kind of change (new therapeutic area, not
+just more rows in the same domain) left the gap's *size* stable while both
+AUCs moved up together. Calibration was also recomputed on the full v7
+pool (same decile methodology as v6): Expected Calibration Error dropped
+from 0.073 to **0.050**, and the systematic under-confidence in the
+lowest-confidence decile shrank from a 27-point gap to ~19.5 points —
+plausibly because 135 failures across 22 hypotheses gives that
+low-probability region more real examples to calibrate against than v6's
+102 across 17, though the same methodology and conclusion (ranking signal,
+not literal probability) still apply.
+
 **The chain matters as much as the destination.** v1's 0.92 was wrong for
 one reason (hypothesis confound); v2's fix revealed a second, unrelated
 problem (label noise) that had been masked by the first; v3's fix of that
@@ -273,12 +322,15 @@ that number back down; v5 added more data again and it moved back up; v6
 fixed a data-quality bug (ChEMBL matching) that changed 13 hypotheses'
 feature values without moving the headline AUC, while widening the
 CV-temporal gap enough to be worth flagging rather than a routine
-re-measurement. Five re-measurements plus one data-quality fix, the same
-underlying conclusion each time: modestly above-chance, not
-decision-grade, with sampling noise now looking closer to ±0.05–0.08 than
-the tighter ±0.03 band earlier versions suggested. Reporting any single
-version's number as "the" result and stopping there would have missed
-that pattern. Full numbers, the per-hypothesis breakdown including how
-many rows per hypothesis are results-based vs. proxy-based and
-molecule-matched vs. target-level, and what's still open:
+re-measurement; v7 extended the whole pipeline to a new therapeutic area
+and got the reassuring answer on the gap v6 had left open, while also
+surfacing a genuine, honest negative result (no naming-mismatch fix
+needed) that clarifies *why* oncology needed the fixes it did. Six
+re-measurements plus one data-quality fix plus one domain-generalization
+test, the same underlying conclusion each time: modestly above-chance,
+not decision-grade, with sampling noise on the order of ±0.05–0.08.
+Reporting any single version's number as "the" result and stopping there
+would have missed that pattern. Full numbers, the per-hypothesis breakdown
+including how many rows per hypothesis are results-based vs. proxy-based
+and molecule-matched vs. target-level, and what's still open:
 `docs/MODEL_CARD.md`.
