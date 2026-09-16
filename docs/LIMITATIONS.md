@@ -251,16 +251,21 @@ Stated plainly, up front, rather than discovered by a reviewer.
    biomarker-driven attrition, adaptive designs) differ meaningfully from,
    say, chronic disease trials.
 
-8. **Live `/score` trades coverage for latency, and has no in-flight
-   request de-duplication.** Measured against the live APIs: fetching
-   EGFR's full Open Targets association list (10 pages, 6,459 rows) took
-   ~79s for a single cold request and once hit a transient ChEMBL 5xx that
-   exhausted the client's retry budget. `/score` caps pagination at 2 pages
-   per source instead (a cache-miss request now takes single-digit seconds
-   — see `serving/api.py`'s module docstring for the full reasoning and the
-   sorted-by-score argument for why this is safe across all 17 current
-   hypotheses). Two concurrent cache-miss requests for the *same*
-   never-yet-cached hypothesis will both independently hit the live APIs
-   rather than one waiting on the other's in-flight fetch — harmless
-   (redundant work, not incorrect results) at this project's traffic level,
-   but a real gap a production version would need a per-key lock for.
+8. **Live `/score` trades coverage for latency.** Measured against the live
+   APIs: fetching EGFR's full Open Targets association list (10 pages,
+   6,459 rows) took ~79s for a single cold request and once hit a transient
+   ChEMBL 5xx that exhausted the client's retry budget. `/score` caps
+   pagination at 2 pages per source instead (a cache-miss request now takes
+   single-digit seconds — see `serving/api.py`'s module docstring for the
+   full reasoning and the sorted-by-score argument for why this is safe
+   across all 17 current hypotheses). **In-flight request de-duplication:
+   fixed.** Two concurrent cache-miss requests for the *same*
+   never-yet-cached hypothesis used to both independently hit the live
+   APIs; `_get_target_diseases`/`_get_activities` now take a per-hypothesis
+   `asyncio.Lock` on a cache miss, so the second waits on the first's
+   in-flight fetch and reuses its result instead of duplicating it —
+   verified with a real concurrency test (two `asyncio.gather`'d calls
+   against a deliberately slow mock, asserting the upstream route was hit
+   once, not twice), not just a read-through of the lock logic. Per-key
+   rather than one global lock, so concurrent misses for *different*
+   hypotheses still fetch in parallel.

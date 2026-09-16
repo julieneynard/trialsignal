@@ -301,12 +301,17 @@ What would actually move the evaluation numbers, roughly in priority order
    (0.680 → 0.676) while `chembl_activity_count` became a top-3 SHAP
    feature — and the CV-temporal gap widened to ≈−0.076 (from −0.035),
    flagged rather than glossed over (`docs/LIMITATIONS.md` item 3a).
-4. **Per-hypothesis fetch locking** in the API, so two concurrent
-   cache-miss requests for the same hypothesis don't both hit the live
-   APIs independently (LIMITATIONS.md item 8).
+4. ~~Per-hypothesis fetch locking~~ **Done.** `_get_target_diseases`/
+   `_get_activities` now take a per-hypothesis `asyncio.Lock` on a cache
+   miss (double-checked: check cache, lock, check again, fetch, populate),
+   so two concurrent first-ever requests for the same hypothesis share
+   one upstream fetch instead of both hitting Open Targets/ChEMBL
+   independently — verified with a real concurrency test (two
+   `asyncio.gather`'d calls against a deliberately slow mock), not just a
+   read-through of the code (LIMITATIONS.md item 8).
 5. Extend past oncology once the pipeline's assumptions (stop-reason
    vocabulary, disease-naming patterns) are re-validated for another
-   therapeutic area.
+   therapeutic area. The only item left open on this list.
 
 ## Docs
 
