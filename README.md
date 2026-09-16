@@ -16,6 +16,11 @@ install, no clone. First request per hypothesis fetches live reference data
 (a few seconds); the free-tier API may take ~50s to wake up if it's been
 idle.
 
+<img src="docs/images/demo_screenshot.png" alt="TrialSignal demo: EGFR/osimertinib/NSCLC scored at 1.00 risk, with a SHAP feature-contribution table" width="600">
+
+*The live demo, screenshotted — scoring EGFR/osimertinib for NSCLC and
+showing the SHAP features that drove the score.*
+
 > **Disclaimer:** research/portfolio project built entirely on public data.
 > Not a validated clinical, investment, or regulatory decision tool. See
 > [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md).

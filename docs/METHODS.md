@@ -107,9 +107,18 @@ applied correctly rather than silently leaving the old values in place.
     preferred.
 - **Interpretability**: SHAP values via `shap.TreeExplainer`, surfaced
   through `top_shap_features` in the training report.
-- **Calibration**: Brier score computed on every run. Reliability-diagram
-  plotting is not yet built (v1's sample size is too small for the
-  per-bin counts to mean anything — see below).
+- **Calibration**: Brier score computed on every run. A decile reliability
+  table was added in v6, once the pooled 17-hypothesis dataset (n=843) made
+  per-bin counts (≈84-85/bin) meaningful — v1-v5's per-hypothesis sample
+  sizes were too small for this to mean anything. Built from
+  `cross_validate_lightgbm`'s leakage-free out-of-fold predictions (each
+  row scored by a fold that never trained on it), not the temporal
+  holdout's 90-row test set, which alone would be far too thin to bin. See
+  `docs/MODEL_CARD.md`'s Evaluation section for the table and the real
+  finding it surfaced: the model is systematically under-confident in its
+  own lowest-confidence decile (predicts ≈60% success, actual ≈87%) —
+  `risk_score` should be read as a ranking signal, not a literal
+  probability, especially for the trials it's least sure about.
 
 ## What the real numbers actually mean (read before citing the AUC)
 

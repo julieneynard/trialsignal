@@ -183,9 +183,46 @@ repeatedly cross-checked signal on public trial-metadata features —
 informative for a portfolio demonstration, nowhere near what would be
 needed to inform an actual go/no-go decision.
 
-No calibration reliability diagram is included — 102 failures across 17
-hypotheses (several with single-digit failure counts) is still thin for
-dense per-bin calibration counts.
+**Calibration (added v6).** Pooling all 17 hypotheses (n=843) makes a
+reliability diagram viable where per-hypothesis breakdowns weren't — using
+the same leakage-free 5-fold stratified CV out-of-fold predictions the CV
+eval numbers above come from (each row's prediction is from a fold that
+never trained on it), binned into deciles (≈84-85 rows/bin, comfortably
+above the ~20-30/bin usually wanted for a stable frequency estimate):
+
+| Mean predicted P(success) | Observed success rate | n |
+|---|---|---|
+| 0.595 | 0.871 | 85 |
+| 0.788 | 0.857 | 84 |
+| 0.837 | 0.833 | 84 |
+| 0.880 | 0.798 | 84 |
+| 0.907 | 0.859 | 85 |
+| 0.928 | 0.857 | 84 |
+| 0.948 | 0.940 | 84 |
+| 0.967 | 0.845 | 84 |
+| 0.983 | 0.952 | 84 |
+| 0.995 | 0.976 | 85 |
+
+Count-weighted Expected Calibration Error: **0.073** (7.3 points, LightGBM,
+10-bin). **The real finding: the model is systematically under-confident in
+its own lowest-confidence bin** — when it predicts ≈60% success probability
+(its most pessimistic decile), the actual success rate there is ≈87%, a
+27-point gap, the largest of any bin. Bins above that are noisier but don't
+show a clean monotonic over- or under-confidence trend (0.837→0.833 is
+close to perfectly calibrated; 0.880→0.798 and 0.967→0.845 run the other
+direction, overconfident). Read together: **`risk_score` is a much more
+reliable *ranking* signal (which is what ROC-AUC/PR-AUC measure, and what
+SHAP explanations are about) than a literal probability, especially for
+the small subset of trials the model is least confident about.** A likely
+driver: with an 88% base success rate and 11 features, the model has very
+little signal to distinguish "60% likely" from "70% likely" in that
+low-confidence tail — it's correctly identifying *which* trials look
+riskier without having enough resolution to say precisely *how much*
+riskier. Fixing this would need either more failure examples in that
+specific probability range or an explicit calibration step (e.g. Platt
+scaling / isotonic regression) — not attempted here since doing that well
+needs a held-out calibration set this dataset doesn't comfortably support
+without cutting into an already-thin training set.
 
 ## Ethical considerations
 - Built entirely from public registry/database data; no patient-level or
@@ -223,7 +260,12 @@ drugs; (5) ChEMBL bioactivity data structurally does not exist for
 antibody-drug hypotheses (0/4 have any record, verified live) — this is a
 property of the database, not a gap in this project's matching logic, and
 `chembl_activity_count`/`chembl_matched_by_molecule_name` should be read
-as "not applicable" rather than "zero signal" for those 4 hypotheses.
-Continuing to add diverse curated hypotheses, each checked for its own
-naming mismatches and each triggering a full re-measurement rather than an
+as "not applicable" rather than "zero signal" for those 4 hypotheses;
+(6) `risk_score` is not a well-calibrated probability — the decile
+reliability table above shows the model under-confident by ~27 points in
+its own lowest-confidence decile (predicts ≈60%, actual ≈87% success) —
+treat it as a ranking signal, not a literal likelihood, and don't
+subtract it from 1 and call the result a failure probability. Continuing
+to add diverse curated hypotheses, each checked for its own naming
+mismatches and each triggering a full re-measurement rather than an
 assumed improvement, remains the validated way to work this number.
