@@ -1,4 +1,6 @@
+import asyncio
 import json
+import time
 from pathlib import Path
 
 import httpx
@@ -8,6 +10,8 @@ from fastapi.testclient import TestClient
 from trialsignal.data.chembl import BASE_URL as CHEMBL_URL
 from trialsignal.data.chembl import MOLECULE_URL
 from trialsignal.data.open_targets import BASE_URL as OPEN_TARGETS_URL
+from trialsignal.features.hypothesis import CURATED_HYPOTHESES
+from trialsignal.serving import api as api_module
 from trialsignal.serving.api import app
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
@@ -175,3 +179,35 @@ def test_score_returns_502_when_upstream_is_persistently_down(
 
     assert response.status_code == 502
     assert "ChEMBL" in response.json()["detail"]
+
+
+@respx.mock
+def test_get_activities_deduplicates_concurrent_cache_miss_calls() -> None:
+    """Two concurrent first-ever callers for the same hypothesis must share
+    one upstream fetch, not each trigger their own — verified by racing two
+    real `asyncio.gather`-scheduled calls against a deliberately slow mock
+    and checking the upstream route was hit once, not twice."""
+    api_module._activity_cache.clear()
+    api_module._activity_locks.clear()
+
+    def _slow_response(request: httpx.Request) -> httpx.Response:
+        time.sleep(0.2)
+        return httpx.Response(200, json=_load("chembl_last_page.json"))
+
+    respx.get(MOLECULE_URL).mock(return_value=httpx.Response(200, json={"molecules": []}))
+    activity_route = respx.get(CHEMBL_URL).mock(side_effect=_slow_response)
+
+    hypothesis = next(h for h in CURATED_HYPOTHESES if h.gene_symbol == "EGFR")
+
+    async def _run() -> tuple[list, list]:
+        return await asyncio.gather(
+            api_module._get_activities(hypothesis), api_module._get_activities(hypothesis)
+        )
+
+    first, second = asyncio.run(_run())
+
+    assert first == second
+    assert first  # non-empty: a real fetch happened, not two no-ops
+    # The second call must have waited on the first's lock and reused its
+    # result -- not raced it and fetched independently.
+    assert activity_route.call_count == 1

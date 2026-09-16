@@ -55,6 +55,16 @@ Design choices worth flagging:
   resist a determined attacker. A bare in-process fixed-window counter is
   deliberately all this needs: single-process deployment, no auth, no
   shared state to coordinate.
+
+- `_get_target_diseases`/`_get_activities` take a per-hypothesis-key
+  `asyncio.Lock` before fetching on a cache miss (double-checked: check
+  cache, acquire that key's lock, check cache again, fetch, populate).
+  Without it, two concurrent first-ever requests for the same hypothesis
+  would both independently hit Open Targets/ChEMBL — wasted, redundant
+  load on public APIs for a result the second request could've just
+  waited a few seconds and reused. Per-key rather than one global lock so
+  concurrent cache misses for *different* hypotheses still fetch in
+  parallel, not serialized behind each other.
 """
 
 from __future__ import annotations
@@ -95,6 +105,8 @@ _state: dict[str, ModelBundle | None] = {"model": None}
 _target_disease_cache: dict[str, list[TargetDiseaseAssociation]] = {}
 _activity_cache: dict[str, list[ChemblActivity]] = {}
 _rate_limit_state: dict[str, tuple[int, float]] = {}
+_target_disease_locks: dict[str, asyncio.Lock] = {}
+_activity_locks: dict[str, asyncio.Lock] = {}
 
 
 @asynccontextmanager
@@ -106,6 +118,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _target_disease_cache.clear()
     _activity_cache.clear()
     _rate_limit_state.clear()
+    _target_disease_locks.clear()
+    _activity_locks.clear()
 
 
 def _enforce_rate_limit(request: Request) -> None:
@@ -172,62 +186,72 @@ async def _fetch_upstream(source_name: str, fetch: Callable[[], _T]) -> _T:
 
 
 async def _get_target_diseases(hypothesis: Hypothesis) -> list[TargetDiseaseAssociation]:
-    cached = _target_disease_cache.get(hypothesis.ensembl_target_id)
+    key = hypothesis.ensembl_target_id
+    cached = _target_disease_cache.get(key)
     if cached is not None:
         return cached
 
-    def _fetch() -> list[TargetDiseaseAssociation]:
-        client = OpenTargetsClient()
-        try:
-            return list(
-                client.iter_target_diseases(
-                    hypothesis.ensembl_target_id, max_pages=_TARGET_DISEASES_MAX_PAGES
-                )
-            )
-        finally:
-            client.close()
+    lock = _target_disease_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        cached = _target_disease_cache.get(key)
+        if cached is not None:
+            return cached
 
-    rows = await _fetch_upstream("Open Targets", _fetch)
-    _target_disease_cache[hypothesis.ensembl_target_id] = rows
-    return rows
+        def _fetch() -> list[TargetDiseaseAssociation]:
+            client = OpenTargetsClient()
+            try:
+                return list(
+                    client.iter_target_diseases(key, max_pages=_TARGET_DISEASES_MAX_PAGES)
+                )
+            finally:
+                client.close()
+
+        rows = await _fetch_upstream("Open Targets", _fetch)
+        _target_disease_cache[key] = rows
+        return rows
 
 
 async def _get_activities(hypothesis: Hypothesis) -> list[ChemblActivity]:
-    cached = _activity_cache.get(hypothesis.chembl_target_id)
+    key = hypothesis.chembl_target_id
+    cached = _activity_cache.get(key)
     if cached is not None:
         return cached
 
-    def _fetch() -> list[ChemblActivity]:
-        client = ChemblClient()
-        try:
-            molecule_ids: set[str] = set()
-            for alias in hypothesis.drug_aliases:
-                molecule_ids.update(client.find_molecule_ids_by_synonym(alias))
+    lock = _activity_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        cached = _activity_cache.get(key)
+        if cached is not None:
+            return cached
 
-            molecule_activities: list[ChemblActivity] = []
-            for molecule_id in molecule_ids:
-                molecule_activities.extend(
-                    client.iter_activities_for_molecule(
-                        molecule_id,
-                        hypothesis.chembl_target_id,
-                        max_pages=_ACTIVITIES_MAX_PAGES,
+        def _fetch() -> list[ChemblActivity]:
+            client = ChemblClient()
+            try:
+                molecule_ids: set[str] = set()
+                for alias in hypothesis.drug_aliases:
+                    molecule_ids.update(client.find_molecule_ids_by_synonym(alias))
+
+                molecule_activities: list[ChemblActivity] = []
+                for molecule_id in molecule_ids:
+                    molecule_activities.extend(
+                        client.iter_activities_for_molecule(
+                            molecule_id, key, max_pages=_ACTIVITIES_MAX_PAGES
+                        )
                     )
+                target_activities = list(
+                    client.iter_activities(key, max_pages=_ACTIVITIES_MAX_PAGES)
                 )
-            target_activities = list(
-                client.iter_activities(hypothesis.chembl_target_id, max_pages=_ACTIVITIES_MAX_PAGES)
-            )
-            # Molecule-specific rows first: _aggregate_chembl (build_features.py)
-            # filters this combined pool by pref_name, so real drug-specific
-            # activities (present here whenever ChEMBL has any) take over from
-            # the generic target-level pool automatically — no extra logic
-            # needed to prefer one over the other.
-            return molecule_activities + target_activities
-        finally:
-            client.close()
+                # Molecule-specific rows first: _aggregate_chembl (build_features.py)
+                # filters this combined pool by pref_name, so real drug-specific
+                # activities (present here whenever ChEMBL has any) take over from
+                # the generic target-level pool automatically — no extra logic
+                # needed to prefer one over the other.
+                return molecule_activities + target_activities
+            finally:
+                client.close()
 
-    rows = await _fetch_upstream("ChEMBL", _fetch)
-    _activity_cache[hypothesis.chembl_target_id] = rows
-    return rows
+        rows = await _fetch_upstream("ChEMBL", _fetch)
+        _activity_cache[key] = rows
+        return rows
 
 
 @app.get("/health", response_model=HealthResponse)
