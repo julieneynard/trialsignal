@@ -9,6 +9,7 @@
 [![CI](https://github.com/julieneynard/trialsignal/actions/workflows/ci.yml/badge.svg)](https://github.com/julieneynard/trialsignal/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-informational)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Julien_Eynard-blue?logo=linkedin)](https://www.linkedin.com/in/juleyn)
 
 **[Try the live demo →](https://trialsignal-demo.streamlit.app)** — no
 install, no clone. First request per hypothesis fetches live reference data
@@ -312,6 +313,11 @@ What would actually move the evaluation numbers, roughly in priority order
 - [`docs/METHODS.md`](docs/METHODS.md) — problem framing, data sources, modeling approach
 - [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) — model card (populated post-training)
 - [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) — known limitations, stated up front
+
+## Author
+
+**Julien Eynard** — [LinkedIn](https://www.linkedin.com/in/juleyn) ·
+[GitHub](https://github.com/julieneynard)
 
 ## License
 
