@@ -299,6 +299,13 @@ async def score(request: ScoreRequest) -> ScoreResponse:
     contributions = explain_instance(model.model, x_row)
 
     warnings: list[str] = []
+    if hypothesis.therapeutic_area != "oncology":
+        warnings.append(
+            f"This hypothesis is in {hypothesis.therapeutic_area}, outside oncology. A direct "
+            "test found the model has no demonstrated skill there (oncology-trained AUC on "
+            "immunology rows 0.47, i.e. chance) — treat this score as uninformative. "
+            "See docs/LIMITATIONS.md item 3c."
+        )
     if not feature_row.chembl_matched_by_molecule_name:
         warnings.append(
             "No ChEMBL bioactivity record matched this drug by name — chembl_* features "

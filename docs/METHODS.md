@@ -299,13 +299,20 @@ v6 (IL-12B is a cytokine subunit, not the kind of target ChEMBL's
 small-molecule assays typically cover).
 
 Dataset grew to **1,186 rows, 135 failures** (v6: 843, 102). Retraining:
-temporal ROC-AUC **0.676 → 0.689** — up, and more importantly, the
-CV-temporal gap came back down to **−0.072**, essentially the same size as
-v6's −0.076 rather than continuing to widen. This is the cleanest evidence
-yet that v6's wider gap was sampling noise and not a resurfacing leakage
-problem: a genuinely different kind of change (new therapeutic area, not
-just more rows in the same domain) left the gap's *size* stable while both
-AUCs moved up together. Calibration was also recomputed on the full v7
+pooled temporal ROC-AUC **0.676 → 0.689**, CV-temporal gap **−0.072** (v6:
+−0.076). **I first read this as evidence that the model generalizes to a
+new therapeutic area and that v6's wider gap was noise. A direct test
+showed that reading was wrong:** trained on oncology only and evaluated on
+the 343 immunology rows, AUC is **0.474** (95% bootstrap CI [0.37, 0.57],
+chance; logreg 0.545; immunology→oncology 0.521), and the immunology slice
+of the pooled temporal test is 51 rows with a single failure — it cannot
+move or validate the headline number, which is carried by oncology (0.681
+vs. v6's 0.676). So the pooled AUC and gap are still effectively
+oncology measurements; the 5 new hypotheses added rows, not validation.
+What v7 does show is that the *pipeline* ports (zero naming fixes). The
+lesson, now applied: a pooled metric that includes the new domain in
+training is not a transfer test — leave-one-area-out is
+(`LIMITATIONS.md` item 3c). Calibration was also recomputed on the full v7
 pool (same decile methodology as v6): Expected Calibration Error dropped
 from 0.073 to **0.050**, and the systematic under-confidence in the
 lowest-confidence decile shrank from a 27-point gap to ~19.5 points —
@@ -322,13 +329,14 @@ that number back down; v5 added more data again and it moved back up; v6
 fixed a data-quality bug (ChEMBL matching) that changed 13 hypotheses'
 feature values without moving the headline AUC, while widening the
 CV-temporal gap enough to be worth flagging rather than a routine
-re-measurement; v7 extended the whole pipeline to a new therapeutic area
-and got the reassuring answer on the gap v6 had left open, while also
-surfacing a genuine, honest negative result (no naming-mismatch fix
-needed) that clarifies *why* oncology needed the fixes it did. Six
-re-measurements plus one data-quality fix plus one domain-generalization
-test, the same underlying conclusion each time: modestly above-chance,
-not decision-grade, with sampling noise on the order of ±0.05–0.08.
+re-measurement; v7 ported the pipeline to a new therapeutic area (zero
+naming fixes needed — a real pipeline-portability result), but a
+leave-one-area-out test then showed the *model* does not transfer
+(AUC 0.474 oncology→immunology), correcting my own first, too-optimistic
+read of v7. Six re-measurements plus one data-quality fix plus one
+transfer test, the same underlying conclusion each time: modestly
+above-chance on oncology, not decision-grade, no demonstrated skill
+elsewhere, with sampling noise on the order of ±0.05–0.08.
 Reporting any single version's number as "the" result and stopping there
 would have missed that pattern. Full numbers, the per-hypothesis breakdown
 including how many rows per hypothesis are results-based vs. proxy-based

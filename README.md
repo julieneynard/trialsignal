@@ -37,10 +37,10 @@ showing the SHAP features that drove the score.*
   holdout) — a real, modestly-above-chance signal, explicitly *not*
   decision-grade. Seven trained versions are documented end-to-end,
   including the ones that got worse, a data-quality fix that moved feature
-  importances without moving the metric, and a real test of whether the
-  pipeline generalizes past oncology into a second therapeutic area — see
-  "On the trained model" below.
-- **Engineering:** typed Python end-to-end (`mypy --strict`), 128 tests
+  importances without moving the metric, and a direct cross-therapeutic-
+  area test that showed the model does **not** transfer from oncology to
+  immunology (AUC 0.47, chance) — see "On the trained model" below.
+- **Engineering:** typed Python end-to-end (`mypy --strict`), 130 tests
   (fixture-mocked *and* verified against live upstream data), CI (lint,
   types, tests, Docker build) green on every push, a Dockerized FastAPI
   service deployed live on Render, and a
@@ -62,7 +62,7 @@ showing the SHAP features that drove the score.*
 | Rigorous model evaluation | Every result cross-checked CV vs. temporal split before being trusted; 6 versions of re-measurement, including honest regressions — [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md) |
 | Interpretable ML | SHAP integration, per-prediction feature attributions exposed through the live API — [`models/train.py`](src/trialsignal/models/train.py) |
 | Production API design | Async FastAPI, in-process caching, graceful degradation (503 with no model, clean 502 on upstream failure), Dockerized — [`serving/api.py`](src/trialsignal/serving/api.py) |
-| Software engineering discipline | `mypy --strict`, `ruff`, 128 tests (`respx`-mocked + live-verified), typed schemas (`pydantic`), CI on every push — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
+| Software engineering discipline | `mypy --strict`, `ruff`, 130 tests (`respx`-mocked + live-verified), typed schemas (`pydantic`), CI on every push — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 | Honest technical communication | Limitations, rejected approaches, and negative results documented as thoroughly as what worked — [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) |
 
 ## Why this exists
@@ -179,18 +179,22 @@ versions, each shipped only after being measured against real data:
   wave off: the CV-temporal gap widened to **≈−0.076** (from v5's −0.035) —
   still far below v2's leaky ≈0.2 gap, but the widest since the confound
   was fixed, and reported as an open question rather than smoothed over.
-- **v7** (22 hypotheses — first extension past oncology: 5 immunology/
-  rheumatology hypotheses added, TNF/IL6R/JAK1 for rheumatoid arthritis +
-  IL17A/IL12B for psoriasis): **1,186 rows, 135 failures**. Temporal
-  ROC-AUC: **≈0.69 (0.689)** — up, and the CV-temporal gap that v6 left
-  open came back down to **≈−0.072**, essentially the same size as v6's
-  rather than continuing to widen — the strongest evidence yet that v6's
-  wider gap was sampling noise, not returning leakage. A genuinely honest
-  extra finding: unlike every oncology batch (4-for-4 needed a naming-
-  mismatch fix), **none** of these 5 needed one — checked live the same
-  way, "Rheumatoid Arthritis" and "Psoriasis" both scored a perfect 1.000
-  against Open Targets. Calibration (recomputed on the full pool) also
-  improved: Expected Calibration Error dropped from v6's 0.073 to **0.050**.
+- **v7** (22 hypotheses — 5 immunology/rheumatology hypotheses added:
+  TNF/IL6R/JAK1 for rheumatoid arthritis + IL17A/IL12B for psoriasis):
+  **1,186 rows, 135 failures**. Pooled temporal ROC-AUC reads **0.689**,
+  but **do not read that as "generalizes past oncology"** — I first wrote
+  it that way and a direct test proved it wrong: trained on oncology only
+  and tested on the 343 immunology rows, AUC is **0.474** (95% bootstrap CI
+  [0.37, 0.57] — chance), and in the pooled temporal test the immunology
+  slice has only 1 failure in 51 rows, so it contributes nothing to the
+  headline number, which is carried by oncology (0.681, unchanged from v6).
+  The model does not transfer across therapeutic areas; v7 mostly added
+  rows it can't yet be evaluated on. What did hold up: the pipeline
+  *machinery* (entity resolution, labeling, feature joins) ran on a new
+  area with zero naming-mismatch fixes needed ("Rheumatoid Arthritis" and
+  "Psoriasis" both scored 1.000 against Open Targets, vs. 4-for-4 batches
+  needing one in oncology) — a pipeline-portability finding, not a
+  model-validity one. `docs/LIMITATIONS.md` item 3c has the full test.
 
 **Still not decision-grade**, and the headline number has now moved
 0.5 → 0.68 → 0.63 → 0.68 → 0.68 → 0.69 across six re-measurements — which
@@ -330,20 +334,21 @@ What would actually move the evaluation numbers, roughly in priority order
    independently — verified with a real concurrency test (two
    `asyncio.gather`'d calls against a deliberately slow mock), not just a
    read-through of the code (LIMITATIONS.md item 8).
-5. ~~Extend past oncology~~ **Done (v7).** 5 immunology/rheumatology
-   hypotheses added — TNF/adalimumab, IL6R/tocilizumab, and JAK1/
-   tofacitinib for rheumatoid arthritis, IL17A/secukinumab and IL12B/
-   ustekinumab for psoriasis. Temporal ROC-AUC moved to ≈0.69 and the
-   CV-temporal gap came back down to the same size as v6's rather than
-   widening further — the model and pipeline generalize to this second
-   therapeutic area, not just to more oncology data. Also a clean
-   negative result: 0 of the 5 needed a naming-mismatch fix, versus 4-for-4
-   in every oncology batch (`docs/LIMITATIONS.md` item 3b).
-6. Extend to a third therapeutic area (cardiovascular and infectious
-   disease are the natural next candidates — neither shares oncology's or
-   immunology's trial dynamics) once there's a specific reason to, rather
-   than to keep inflating the hypothesis count. The only item left
-   genuinely open on this list.
+5. **Extend past oncology — pipeline done, model validity not.** 5
+   immunology/rheumatology hypotheses were added (TNF, IL6R, JAK1 for
+   rheumatoid arthritis; IL17A, IL12B for psoriasis) and the *pipeline*
+   ported cleanly (0 of 5 needed a naming-mismatch fix, vs. 4-for-4 in
+   oncology — `docs/LIMITATIONS.md` item 3b). But the direct transfer test
+   shows the *model* does not carry over: oncology-trained → immunology
+   AUC 0.474 (CI [0.37, 0.57]), and the immunology slice of the pooled
+   temporal test has 1 failure in 51 rows, so it can't be evaluated at all
+   (item 3c). An earlier version of this README claimed generalization;
+   that was wrong and has been corrected.
+6. What would actually fix item 5: enough immunology failures to evaluate
+   that area on its own (135 failures pooled, but only 33 immunology ones,
+   concentrated in few hypotheses) and per-area modeling or an explicit
+   area feature, evaluated leave-one-area-out. Adding a third area before
+   that would only add more rows the model can't be validated on.
 
 ## Docs
 

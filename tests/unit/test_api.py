@@ -211,3 +211,42 @@ def test_get_activities_deduplicates_concurrent_cache_miss_calls() -> None:
     # The second call must have waited on the first's lock and reused its
     # result -- not raced it and fetched independently.
     assert activity_route.call_count == 1
+
+
+def test_score_warns_for_hypotheses_outside_oncology(trained_model_path, monkeypatch) -> None:
+    """The model has no demonstrated skill outside oncology (LIMITATIONS.md
+    item 3c: oncology-trained AUC on immunology rows is 0.47), so /score must
+    say so for those hypotheses rather than return a bare number."""
+    from trialsignal.data.schemas import TargetDiseaseAssociation
+
+    monkeypatch.setenv("TRIALSIGNAL_MODEL_PATH", str(trained_model_path))
+
+    async def _fake_diseases(hypothesis):
+        return [
+            TargetDiseaseAssociation(
+                target_id=hypothesis.ensembl_target_id,
+                target_symbol=hypothesis.gene_symbol,
+                disease_id="EFO_0000685",
+                disease_name="rheumatoid arthritis",
+                overall_score=0.64,
+            )
+        ]
+
+    async def _fake_activities(hypothesis):
+        return []
+
+    monkeypatch.setattr(api_module, "_get_target_diseases", _fake_diseases)
+    monkeypatch.setattr(api_module, "_get_activities", _fake_activities)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/score", json={"gene_symbol": "TNF", "disease_name": "rheumatoid arthritis"}
+        )
+
+    assert response.status_code == 200, response.text
+    assert any("outside oncology" in w for w in response.json()["warnings"])
+
+
+def test_oncology_hypotheses_get_no_therapeutic_area_warning() -> None:
+    immunology = {h.gene_symbol for h in CURATED_HYPOTHESES if h.therapeutic_area != "oncology"}
+    assert immunology == {"TNF", "IL6R", "JAK1", "IL17A", "IL12B"}

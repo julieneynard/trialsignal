@@ -31,6 +31,11 @@ class Hypothesis(BaseModel):
     ctgov_condition_query: str = Field(
         ..., description="CT.gov query.cond value used to pull the trial pool for this hypothesis."
     )
+    therapeutic_area: str = Field(
+        default="oncology",
+        description="Used by /score to warn when a hypothesis is outside the area the model "
+        "has a demonstrated signal in (see docs/LIMITATIONS.md item 3c).",
+    )
 
 
 # A small, human-reviewed starting set — chosen because they're well-known,
@@ -274,6 +279,7 @@ CURATED_HYPOTHESES: list[Hypothesis] = [
         chembl_target_id="CHEMBL1825",
         drug_aliases=["adalimumab", "humira", "d2e7"],
         ctgov_condition_query="rheumatoid arthritis",
+        therapeutic_area="immunology",
     ),
     Hypothesis(
         # Same disease as TNF above, different mechanism (IL-6 signaling,
@@ -285,6 +291,7 @@ CURATED_HYPOTHESES: list[Hypothesis] = [
         chembl_target_id="CHEMBL2364155",
         drug_aliases=["tocilizumab", "actemra", "roactemra"],
         ctgov_condition_query="rheumatoid arthritis",
+        therapeutic_area="immunology",
     ),
     Hypothesis(
         # The one small molecule in this batch (a JAK inhibitor, oral, not
@@ -298,6 +305,7 @@ CURATED_HYPOTHESES: list[Hypothesis] = [
         chembl_target_id="CHEMBL2835",
         drug_aliases=["tofacitinib", "xeljanz", "cp-690550", "cp690550"],
         ctgov_condition_query="rheumatoid arthritis",
+        therapeutic_area="immunology",
     ),
     Hypothesis(
         name="IL17A / secukinumab / psoriasis",
@@ -306,6 +314,7 @@ CURATED_HYPOTHESES: list[Hypothesis] = [
         chembl_target_id="CHEMBL3390822",
         drug_aliases=["secukinumab", "cosentyx", "ain457"],
         ctgov_condition_query="psoriasis",
+        therapeutic_area="immunology",
     ),
     Hypothesis(
         # Same disease as IL17A (psoriasis), different mechanism — the
@@ -318,5 +327,6 @@ CURATED_HYPOTHESES: list[Hypothesis] = [
         chembl_target_id="CHEMBL3580484",
         drug_aliases=["ustekinumab", "stelara", "cnto-1275", "cnto1275"],
         ctgov_condition_query="psoriasis",
+        therapeutic_area="immunology",
     ),
 ]

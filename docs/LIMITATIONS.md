@@ -216,6 +216,34 @@ Stated plainly, up front, rather than discovered by a reviewer.
    coverage-gap finding: IL-12B is a cytokine subunit, not the kind of
    target ChEMBL's small-molecule assays typically cover.
 
+3c. **[v7, found by checking my own claim] The model does not transfer
+   across therapeutic areas — and v7's pooled AUC never tested that.**
+   After adding immunology, the docs claimed the model "generalizes past
+   oncology" because pooled temporal AUC rose 0.676 → 0.689. That inference
+   was invalid: immunology rows were in the training set, so a pooled
+   metric can't measure transfer. The right test is leave-one-area-out,
+   run on the same 22 local feature tables (843 oncology / 343 immunology
+   rows; failure rates 12.1% / 9.6%):
+     - **Train oncology only → test immunology:** LightGBM AUC **0.474**
+       (95% bootstrap CI [0.370, 0.571], 1,000 resamples — chance);
+       logistic-regression baseline 0.545.
+     - **Train immunology only → test oncology:** LightGBM AUC 0.521
+       (only 310 successes / 33 failures to train on — indicative only).
+     - **Pooled temporal split, per area:** oncology test slice n=90, 17
+       failures, AUC 0.681 (v6's all-oncology figure was 0.676 — i.e.
+       unchanged); immunology test slice n=51 with **1** failure, so its
+       0.740 AUC is meaningless and AUC is effectively undefined there.
+   Reading: the headline 0.689 is carried by oncology. The immunology rows
+   contributed training data the model shows no ability to use out of
+   domain, and almost no evaluable test signal in-domain. What *did*
+   legitimately transfer is the pipeline machinery (item 3b). Consequences:
+   `/score` for TNF, IL6R, JAK1, IL17A and IL12B returns a number but has
+   no demonstrated validity; and "pooled metric went up when I added a new
+   domain" must not be reported as generalization. This test was prompted
+   by an external critique of the project that raised exactly this concern
+   (domain-specific biases vs. universal mechanistic signal) — it was
+   correct, and the data confirm it.
+
 4. **[Fixed in v2, kept here as a worked example] 60 labeled rows from 2
    hypotheses was not enough to evaluate a model on, and v1's ROC-AUC
    (~0.92) was not evidence it worked.** All 3 failure-labeled trials were
@@ -256,11 +284,13 @@ Stated plainly, up front, rather than discovered by a reviewer.
    trusted: the CV-temporal gap has been 0.031, 0.028, 0.035, −0.076,
    −0.072 across v3→v7 — three tight, two notably wider but stable in size
    between each other, still nowhere near v2's ≈0.2 leaky gap in one fixed
-   direction. v7's result is the strongest evidence yet that v6's wider gap
-   was sampling noise, not a returning leakage problem: a genuinely
-   different kind of change (new therapeutic area, not just more rows)
-   left the gap's magnitude essentially unchanged while both AUCs improved
-   together. It is still a modest dataset for 11 features, and the feature
+   direction. **Correction to an earlier version of this note:** it
+   called v7 "the strongest evidence yet that v6's wider gap was sampling
+   noise." Item 3c shows that overreached — the immunology rows add almost
+   no evaluable test signal (1 failure in 51 test rows), so v7's pooled
+   AUC and gap are still effectively oncology measurements. The gaps are
+   still consistent with noise, but v7 did not add independent
+   confirmation. It is still a modest dataset for 11 features, and the feature
    set is still target/chemistry-level, missing protocol design quality,
    patient selection criteria, and competitive landscape — real drivers of
    trial outcomes this pipeline has no source for. ~80% of rows are still
@@ -292,12 +322,12 @@ Stated plainly, up front, rather than discovered by a reviewer.
 
 7. **Therapeutic-area scope, still real even after v7.** v1-v6 were
    oncology-only; v7 added 5 immunology/rheumatology hypotheses across just
-   2 diseases (rheumatoid arthritis, psoriasis — see item 3b). That's a
-   genuine generalization test, not a broad validation: "the pipeline and
-   model transfer to immunology" is a fair read of v7's results (AUC and
-   CV-temporal gap both landed within noise of the oncology-only numbers);
-   "the model works across therapeutic areas in general" is not — 2
-   diseases in 1 non-oncology area is still a narrow sample. Findings and
+   2 diseases (rheumatoid arthritis, psoriasis — see item 3b). "The
+   *pipeline* transfers to immunology" is a fair read (zero naming fixes);
+   "the *model* transfers" is **not** supported — item 3c's leave-one-
+   area-out test gives oncology→immunology AUC 0.474 (chance), and an
+   earlier version of this item wrongly called v7 a generalization test.
+   The model has no demonstrated skill outside oncology. Findings and
    feature importances should not be assumed to generalize to other
    disease areas without their own re-validation — oncology trial dynamics
    (fast biomarker-driven attrition, adaptive designs) and immunology's

@@ -14,15 +14,19 @@ target-level-only): ROC-AUC ≈ 0.68, essentially unchanged from v5, while
 feature by mean |SHAP|; CV-temporal gap widened to −0.076, flagged rather
 than glossed over. **v7 (22 hyp., first non-oncology therapeutic area —
 5 immunology/rheumatology hypotheses added, see "Extending past
-oncology" below): 1,186 rows (+343). ROC-AUC ≈ 0.69 (LightGBM, temporal
-holdout)** — up from v6's 0.676, and the CV-temporal gap came back down
-to −0.072, essentially the same size as v6's rather than widening further
-— the cleanest read yet that adding a whole new therapeutic area didn't
-destabilize the model or reveal a domain-specific breakdown. Seven
-versions in, the pattern holding is: point estimates move ±0.05–0.07 as
-hypotheses, data quality, or therapeutic-area scope change, and no single
-move — up or down — should be read as more than "still modestly above
-chance, with normal sampling variation at this dataset size."
+oncology" below): 1,186 rows (+343). Pooled temporal ROC-AUC 0.689 — but
+this number does NOT show the model generalizes across therapeutic areas,
+and an earlier version of this card said it did.** A direct test
+(`LIMITATIONS.md` item 3c) found: trained on oncology only, tested on the
+343 immunology rows, AUC is **0.474** (95% bootstrap CI [0.37, 0.57] —
+chance); and in the pooled temporal test the immunology slice has 1
+failure in 51 rows, so it contributes nothing to the headline, which is
+carried by the oncology rows (0.681, unchanged from v6's 0.676). What v7
+legitimately shows is that the *pipeline* (entity resolution, labeling,
+joins) ported to a new area without needing any naming fix — not that the
+model's predictive signal did. Seven versions in, the pattern holding is
+"modestly above chance on oncology, with normal sampling variation," and
+no evidence of any skill outside it.
 
 ## Model details
 - **Developed by:** Julien Eynard, independent portfolio project.
@@ -180,21 +184,16 @@ number in isolation.**
 | v6 | 17 | 843 | 0.676 | 0.600 | −0.076 (temporal higher) |
 | v7 | 22 | 1,186 | **0.689** | 0.617 | **−0.072 (temporal higher)** |
 
-**v7 is the reassuring result v6 left open.** v6's gap (−0.076) was
-flagged as the widest since the v2 confound fix, with an honest "probably
-sampling noise, not confirmed" verdict pending further evidence. v7 adds
-a genuinely different kind of evidence — not just more rows, a whole new
-therapeutic area — and the gap came back down to −0.072, essentially the
-same size, not wider. If v6's gap had been a returning leakage problem,
-the natural expectation would be for it to keep growing or behave
-erratically as the dataset changed shape further; instead it held steady
-within noise of v6's value while both AUCs moved up together (temporal
-0.676→0.689, CV 0.600→0.617). Read plainly: this dataset size now produces
-CV-temporal gaps of 0.031, 0.028, 0.035, 0.076, 0.072 — one notably wider
-pair (v6, v7) and three tighter, still nothing resembling v2's ≈0.2 leaky,
-one-directional gap. The honest summary stays "modestly above chance, with
-sampling noise on the order of ±0.05–0.08," now checked against a genuine
-domain-generalization test, not just more of the same data.
+**v7's gap (−0.072) matches v6's (−0.076), but that is weaker evidence than
+I first claimed.** I originally read it as "the reassuring result v6 left
+open — a whole new therapeutic area, and the gap stayed stable." The
+cross-area test (`LIMITATIONS.md` item 3c) undercuts that: the new area
+adds almost no evaluable test signal (1 failure in 51 immunology test
+rows), so the pooled temporal AUC and gap are still effectively measuring
+oncology. Gaps of 0.031, 0.028, 0.035, 0.076, 0.072 across v3→v7, none near
+v2's ≈0.2 one-directional leak, remain consistent with sampling noise — but
+v7 did not add the independent confirmation I said it did. Honest summary:
+"modestly above chance on oncology, ±0.05–0.08 noise," unchanged.
 
 **Top SHAP features (LightGBM, temporal-trained model, v7):**
 `max_phase_ordinal` (0.512), `enrollment` (0.385), `ot_overall_score`
@@ -257,11 +256,10 @@ eliminated) miscalibration in the tail.
   bioactivity by the actual drug instead of falling back to a generic
   target aggregate) can be real and verifiable — 100%/0% molecule-match
   split confirmed live against ChEMBL, a top-3 SHAP feature shift — without
-  moving the headline metric. v7 demonstrates the pipeline generalizes past
-  its original domain: same methodology, same discipline, applied to
-  immunology/rheumatology, with the model's performance and the
-  CV-temporal gap both landing within noise of the oncology-only result —
-  and one clean negative control (zero of 5 new hypotheses needed a
+  moving the headline metric. v7 demonstrates the *pipeline* ports past
+  its original domain (the model does not — see item 3c): same
+  methodology, same discipline, applied to immunology/rheumatology,
+  with one clean negative control (zero of 5 new hypotheses needed a
   naming-mismatch fix, versus four-for-four in oncology), which is itself
   useful evidence about *why* the oncology fixes were needed (CT.gov vs.
   Open Targets phrasing divergence specific to certain disease-naming
@@ -295,11 +293,13 @@ decile reliability table above shows the model under-confident by
 ~19.5 points in its own lowest-confidence decile (improved from v6's 27
 points, but not eliminated) — treat it as a ranking signal, not a literal
 likelihood, and don't subtract it from 1 and call the result a failure
-probability; (7) the 5 immunology hypotheses (v7) are all rheumatoid
-arthritis or psoriasis — real mechanistic diversity, but only 2 diseases,
-so "generalizes past oncology" should be read as "generalizes to this one
-additional therapeutic area," not validated broadly across all of
-immunology yet. Continuing to add diverse curated hypotheses — across
-mechanisms, diseases, and now therapeutic areas — each checked for its own
-naming mismatches and each triggering a full re-measurement rather than an
-assumed improvement, remains the validated way to work this number.
+probability; (7) **the model has no demonstrated skill outside oncology.**
+Trained on oncology and tested on the 343 immunology rows, AUC is 0.474
+(CI [0.37, 0.57]); the immunology slice of the pooled temporal test has 1
+failure in 51 rows and can't be evaluated. Live `/score` calls for the 5
+immunology hypotheses (TNF, IL6R, JAK1, IL17A, IL12B) return a number, but
+that number should be treated as uninformative until there are enough
+immunology failures to validate per-area. Adding more hypotheses, in
+either area, is only worthwhile if it adds *evaluable* failures; adding
+more areas before validating one just adds rows the model can't be
+checked on.
